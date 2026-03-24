@@ -48,10 +48,11 @@ namespace ArenaEnhanced
         public System.Action<ArenaCombatant> OnDeath;
         public System.Action<float, float> OnHealthChanged;
 
-        private void Awake()
+        private void Start()
         {
-            hp = Mathf.Clamp(hp, 0f, maxHp);
+            if (hp <= 0.01f) hp = maxHp;
             _spawnPosition = transform.position;
+            OnHealthChanged?.Invoke(hp, maxHp);
         }
 
         private void OnEnable()
@@ -131,25 +132,50 @@ namespace ArenaEnhanced
             return true;
         }
 
-        /// <summary>
-        /// Muerte del combatiente
-        /// </summary>
         private void Die()
         {
+            if (hp > 0) hp = 0; // Ensure it is exactly 0
             Debug.Log($"[ArenaCombatant] {displayName} ha muerto.");
             OnDeath?.Invoke(this);
 
-            // Opcional: destruir después de un tiempo si no es jugador
-            if (!isPlayer) Destroy(gameObject, 2f);
+            if (isPlayer)
+            {
+                var anim = GetComponentInChildren<Animator>();
+                if (anim != null) anim.enabled = false;
+                
+                var rb = GetComponent<Rigidbody>();
+                if (rb != null)
+                {
+                    rb.constraints = RigidbodyConstraints.None;
+                    rb.AddTorque(-transform.right * 5f, ForceMode.Impulse);
+                }
+            }
+            else
+            {
+                Destroy(gameObject, 2f);
+            }
         }
 
-        /// <summary>
-        /// Respawn del combatiente
-        /// </summary>
         public void Respawn(Vector3 position)
         {
             hp = maxHp;
             transform.position = position;
+            transform.rotation = Quaternion.identity;
+            
+            if (isPlayer)
+            {
+                var rb = GetComponent<Rigidbody>();
+                if (rb != null)
+                {
+                    rb.linearVelocity = Vector3.zero;
+                    rb.angularVelocity = Vector3.zero;
+                    rb.constraints = RigidbodyConstraints.FreezeRotation; 
+                }
+
+                var anim = GetComponentInChildren<Animator>();
+                if (anim != null) anim.enabled = true;
+            }
+
             gameObject.SetActive(true);
             OnHealthChanged?.Invoke(hp, maxHp);
 

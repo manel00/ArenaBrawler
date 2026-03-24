@@ -26,15 +26,42 @@ namespace ArenaEnhanced
 
         private void Update()
         {
-            if (!ended) CheckWin();
+            // Esperar un par de segundos para que todo se inicialice antes de comprobar victoria
+            if (!ended && Time.timeSinceLevelLoad > 2f) 
+                CheckWin();
 
             if (ended && Input.GetKeyDown(KeyCode.R))
-                SceneManager.LoadScene(SceneManager.GetActiveScene().name);
+            {
+                if (endText == "HAS SIDO DERROTADO" && player != null)
+                {
+                    ended = false;
+                    endText = string.Empty;
+                    RespawnPlayerRandomly();
+                }
+                else
+                {
+                    SceneManager.LoadScene(SceneManager.GetActiveScene().name);
+                }
+            }
+        }
+
+        private void RespawnPlayerRandomly()
+        {
+            Vector2 randomCircle = Random.insideUnitCircle * 30f;
+            Vector3 randomPos = new Vector3(randomCircle.x, 50f, randomCircle.y);
+            if (Physics.Raycast(randomPos, Vector3.down, out RaycastHit hit, 100f))
+            {
+                player.Respawn(hit.point);
+            }
+            else
+            {
+                player.Respawn(new Vector3(randomCircle.x, 2f, randomCircle.y)); // Fallback
+            }
         }
 
         private void OnCombatantDied(ArenaCombatant victim, ArenaCombatant killer)
         {
-            if (victim != null && victim.isPlayer)
+            if (victim != null && victim == player)
             {
                 ended = true;
                 endText = "HAS SIDO DERROTADO";
@@ -52,7 +79,7 @@ namespace ArenaEnhanced
                 ended = true;
                 if (alive.Count == 1)
                 {
-                    endText = alive[0].isPlayer ? "¡VICTORIA MAGISTRAL!" : $"GANADOR: {alive[0].displayName}";
+                    endText = (alive[0] == player) ? "¡VICTORIA MAGISTRAL!" : $"GANADOR: {alive[0].displayName}";
                 }
                 else
                 {

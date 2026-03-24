@@ -174,38 +174,48 @@ namespace ArenaEnhanced
             var go = new GameObject("SummonedDog");
             go.transform.position = position;
 
-#if UNITY_EDITOR
-            var modelPrefab = UnityEditor.AssetDatabase.LoadAssetAtPath<GameObject>("Assets/Models/Characters/Domestic robot/Domestic Robot.obj");
-            if (modelPrefab != null)
+            // Build slave visual using primitives — 100% guaranteed visible regardless of asset import state
             {
-                var model = Object.Instantiate(modelPrefab, go.transform);
-                model.transform.localPosition = Vector3.zero;
-                model.transform.localScale = new Vector3(0.5f, 0.5f, 0.5f); // Half size robot dog
-                
-                // Texture setup
-                var tex = UnityEditor.AssetDatabase.LoadAssetAtPath<Texture2D>("Assets/Models/Characters/Domestic robot/Domestic robot Texture.png");
-                var renderers = model.GetComponentsInChildren<Renderer>();
-                foreach (var r in renderers)
-                {
-                    var mat = new Material(Shader.Find("Universal Render Pipeline/Lit"));
-                    if (tex != null) mat.mainTexture = tex;
-                    r.material = mat;
-                }
+                var slaveMat = new Material(Shader.Find("Universal Render Pipeline/Lit"));
+                slaveMat.color = new Color(0.65f, 0.45f, 1f); // Purple tint
 
-                // Cleanup colliders
-                var childCols = model.GetComponentsInChildren<Collider>(true);
-                foreach (var c in childCols) Object.Destroy(c);
+                // Body
+                var body = GameObject.CreatePrimitive(PrimitiveType.Capsule);
+                body.name = "SlaveBody";
+                body.transform.SetParent(go.transform);
+                body.transform.localPosition = new Vector3(0f, 0.55f, 0f);
+                body.transform.localScale = new Vector3(0.45f, 0.35f, 0.45f);
+                body.GetComponent<Renderer>().material = slaveMat;
+                Object.DestroyImmediate(body.GetComponent<Collider>());
+
+                // Head
+                var head = GameObject.CreatePrimitive(PrimitiveType.Sphere);
+                head.name = "SlaveHead";
+                head.transform.SetParent(go.transform);
+                head.transform.localPosition = new Vector3(0f, 1.15f, 0f);
+                head.transform.localScale = Vector3.one * 0.35f;
+                var headMat = new Material(slaveMat); // copy
+                headMat.color = new Color(0.45f, 0.3f, 0.85f); // darker purple
+                head.GetComponent<Renderer>().material = headMat;
+                Object.DestroyImmediate(head.GetComponent<Collider>());
+
+                // Eyes
+                var eyeMat = new Material(Shader.Find("Universal Render Pipeline/Lit"));
+                eyeMat.color = new Color(1f, 0.9f, 0.1f); // yellow glowing eyes
+                eyeMat.EnableKeyword("_EMISSION");
+                eyeMat.SetColor("_EmissionColor", new Color(1f, 0.8f, 0f) * 3f);
+
+                foreach (var offset in new[] { new Vector3(-0.07f, 1.17f, 0.14f), new Vector3(0.07f, 1.17f, 0.14f) })
+                {
+                    var eye = GameObject.CreatePrimitive(PrimitiveType.Sphere);
+                    eye.name = "SlaveEye";
+                    eye.transform.SetParent(go.transform);
+                    eye.transform.localPosition = offset;
+                    eye.transform.localScale = Vector3.one * 0.09f;
+                    eye.GetComponent<Renderer>().material = eyeMat;
+                    Object.DestroyImmediate(eye.GetComponent<Collider>());
+                }
             }
-            else
-            {
-                // Fallback to primitive
-                var primitive = GameObject.CreatePrimitive(PrimitiveType.Capsule);
-                primitive.transform.SetParent(go.transform);
-                primitive.transform.localPosition = Vector3.up * 0.5f;
-                primitive.transform.localScale = new Vector3(0.6f, 0.4f, 0.8f);
-                Object.Destroy(primitive.GetComponent<Collider>());
-            }
-#endif
 
             var col = go.AddComponent<CapsuleCollider>();
             col.radius = 0.5f;
@@ -225,6 +235,18 @@ namespace ArenaEnhanced
 
             var dog = go.AddComponent<DogController>();
             dog.owner = owner;
+
+            // Ignore collision between dog and its owner to avoid being trapped or bugged
+            if (owner != null)
+            {
+                var ownerCol = owner.GetComponent<Collider>();
+                var dogCol = go.GetComponent<Collider>();
+                if (ownerCol != null && dogCol != null)
+                    Physics.IgnoreCollision(ownerCol, dogCol);
+            }
+
+            Debug.Log($"[SpawnDog] Perro invocado en {position} para {owner?.displayName}");
+
             return dog;
         }
     }
@@ -495,6 +517,7 @@ namespace ArenaEnhanced
 
         private void Start()
         {
+            Debug.Log("[ArenaBootstrap] Start: Initializing arena...");
             BuildEnvironment();
             // SpawnWeaponsOnFloor(); // Removed to keep arena clean as requested
             BuildArenaMatch();
@@ -551,6 +574,7 @@ namespace ArenaEnhanced
             var player = SpawnFighter("Player", new Vector3(0f, 1.2f, -6f), new Color(0.2f, 0.8f, 1f), 1, true);
 
             float radius = 10f;
+            Debug.Log($"[ArenaBootstrap] BuildArenaMatch: Spawning {bots} bots...");
             for (int i = 0; i < bots; i++)
             {
                 float angle = (Mathf.PI * 2f / Mathf.Max(1, bots)) * i;
@@ -558,7 +582,15 @@ namespace ArenaEnhanced
                 SpawnFighter($"Bot_{i + 1}", pos, new Color(1f, 0.35f, 0.35f), 10 + i, false);
             }
 
-            SetupMainCamera(player.transform);
+            if (player != null)
+            {
+                Debug.Log("[ArenaBootstrap] BuildArenaMatch: Setting up camera...");
+                SetupMainCamera(player.transform);
+            }
+            else
+            {
+                Debug.LogError("[ArenaBootstrap] BuildArenaMatch: Player spawn FAILED!");
+            }
 
             // Setup Game Manager
             var gmGo = new GameObject("ArenaGameManager");
@@ -647,21 +679,20 @@ namespace ArenaEnhanced
             {
                 string[] guids = AssetDatabase.FindAssets("PlayerRobot t:Prefab");
                 if (guids.Length > 0)
-                {
                     modelPrefab = AssetDatabase.LoadAssetAtPath<GameObject>(AssetDatabase.GUIDToAssetPath(guids[0]));
-                }
             }
 
             if (modelPrefab != null)
             {
                 var model = Instantiate(modelPrefab, go.transform);
                 model.transform.localPosition = Vector3.zero;
-                model.transform.localRotation = Quaternion.Euler(0, -90, 0); // Corrected orientation: mesh faces +X, rotate to align with parent forward
-                model.transform.localScale = new Vector3(1f, 1f, 1f);
+                // The PlayerRobot prefab was built for Cinemachine with a baked -90° Y offset.
+                // We apply that offset here so transform.forward of the root matches the visual facing direction.
+                model.transform.localRotation = Quaternion.Euler(0f, -90f, 0f);
+                model.transform.localScale = Vector3.one;
                 
                 if (!isPlayer)
                 {
-                    // Cleanup components that might hijack camera/input on bots
                     var compsToDisable = model.GetComponentsInChildren<Behaviour>(true);
                     foreach (var c in compsToDisable)
                     {
@@ -673,40 +704,59 @@ namespace ArenaEnhanced
                         }
                     }
 
-                    // Randomize Bot Colors
                     var renderers = model.GetComponentsInChildren<Renderer>();
                     Color rndColor = Random.ColorHSV(0, 1, 0.4f, 1, 0.4f, 1);
                     foreach (var r in renderers)
                     {
                         var mat = new Material(Shader.Find("Universal Render Pipeline/Lit"));
                         mat.color = rndColor;
-                        mat.SetFloat("_Metallic", Random.Range(0.2f, 0.9f));
-                        mat.SetFloat("_Smoothness", Random.Range(0.2f, 0.8f));
                         r.material = mat;
                     }
                 }
 
-                // --- CRITICAL CLEANUP FOR BOTH PLAYER AND BOTS ---
-                // Remove CharacterController and StarterAssets that fight with our physics
+                // Refined cleanup: remove StarterAssets/Camera components while preserving ALL GameObjects
                 var allComps = model.GetComponentsInChildren<Component>(true);
-                foreach (var comp in allComps)
+                foreach (var c in allComps)
                 {
-                    if (comp == null) continue;
-                    string t = comp.GetType().Name;
-                    if (t == "CharacterController" || t == "ThirdPersonController" || t == "StarterAssetsInputs" || 
-                        t == "PlayerInput" || t == "RespawnPlayer" || t == "CinemachineBrain" || t == "CinemachineCamera" ||
-                        t == "Camera" || t == "AudioListener")
+                    if (c == null || c is Transform) continue;
+                    string typeName = c.GetType().Name;
+                    
+                    bool shouldRemove = false;
+                    if (typeName.Contains("Camera") || typeName.Contains("AudioListener") || 
+                        typeName.Contains("Cinemachine") || typeName.Contains("ThirdPersonController") ||
+                        typeName.Contains("StarterAssetsInputs") || typeName.Contains("PlayerInput") ||
+                        typeName.Contains("RespawnPlayer") || typeName == "CharacterController" ||
+                        typeName == "UniversalAdditionalCameraData")
                     {
-                        Object.Destroy(comp);
+                        shouldRemove = true;
+                    }
+
+                    if (shouldRemove)
+                    {
+                        try { Object.DestroyImmediate(c); } catch { }
                     }
                 }
 
-                // Destroy all child colliders to prevent physics 'explosions' with root collider
-                var childCols = model.GetComponentsInChildren<Collider>(true);
-                foreach (var c in childCols) Object.Destroy(c);
+                // Explicitly destroy pure camera-rig children (no visual content, safe to delete)
+                var cameraRigNames = new[] { "RobotCamera", "PlayerFollowCamera" };
+                foreach (var rigName in cameraRigNames)
+                {
+                    var rigTransform = model.transform.Find(rigName);
+                    if (rigTransform != null)
+                        Object.DestroyImmediate(rigTransform.gameObject);
+                }
+
+                // 4. Setup Animation
+                foreach (var anim in model.GetComponentsInChildren<Animator>(true))
+                {
+                    if (anim.gameObject.GetComponent<AnimationEventReceiver>() == null)
+                        anim.gameObject.AddComponent<AnimationEventReceiver>();
+                }
+                Debug.Log($"[ArenaBootstrap] SpawnFighter: {fighterName} model cleaned and initialized.");
+
+                foreach (var c in model.GetComponentsInChildren<Collider>(true)) Object.DestroyImmediate(c);
             }
 #endif
-            // Add Capsule Collider to Root
             var col = go.AddComponent<CapsuleCollider>();
             col.height = 1.8f;
             col.radius = 0.4f;
@@ -726,11 +776,15 @@ namespace ArenaEnhanced
             if (isPlayer) 
             {
                 var pc = go.AddComponent<PlayerController>();
-                pc.jumpForce = 15f; // Increased jump height to reach ring
+                pc.jumpForce = 25f; // High enough to jump from green area onto white platform
             }
             else 
             {
                 go.AddComponent<BotController>();
+                // Add floating HP bar above enemy head
+                var hpBar = go.AddComponent<WorldHPBar>();
+                hpBar.combatant = combatant;
+                hpBar.label = fighterName;
             }
 
             return combatant;

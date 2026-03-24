@@ -11,8 +11,8 @@ namespace ArenaEnhanced
     {
         public ArenaCombatant owner;
         public float moveSpeed = 9f;
-        public float acceleration = 30f;
-        public float detectDistance = 18f;
+        public float acceleration = 40f;
+        public float detectDistance = 10f; // 10 metros como pidió el usuario
         public float attackRange = 1.8f;
         public float attackCooldown = 1.5f;
         public float lifeDuration = 20f;

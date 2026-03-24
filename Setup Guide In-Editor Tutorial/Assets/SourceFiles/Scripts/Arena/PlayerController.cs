@@ -40,6 +40,7 @@ namespace ArenaEnhanced
             
             // Find animator in children since the prefab puts it on a 'Robot' child
             animator = GetComponentInChildren<Animator>();
+            Debug.Log($"[PlayerController] Started for {gameObject.name}. Animator found: {animator != null}");
         }
         
         private void Update()
@@ -48,10 +49,6 @@ namespace ArenaEnhanced
             CheckGround();
             UpdateAnimator();
         }
-
-        // --- Animation Event Handlers (Silence Warnings) ---
-        public void OnFootstep(AnimationEvent animationEvent) { }
-        public void OnLand(AnimationEvent animationEvent) { }
         
         private void FixedUpdate()
         {
@@ -74,23 +71,22 @@ namespace ArenaEnhanced
                 if (Keyboard.current.dKey.isPressed || Keyboard.current.rightArrowKey.isPressed) horizontal = 1f;
                 if (Keyboard.current.wKey.isPressed || Keyboard.current.upArrowKey.isPressed) vertical = 1f;
                 if (Keyboard.current.sKey.isPressed || Keyboard.current.downArrowKey.isPressed) vertical = -1f;
+
+                if (Keyboard.current.spaceKey.wasPressedThisFrame) Jump();
+                if (Keyboard.current.digit1Key.wasPressedThisFrame) CastFireball();
+                if (Keyboard.current.digit2Key.wasPressedThisFrame) SummonDog();
             }
 #else
             // Input System antiguo
             horizontal = Input.GetAxis("Horizontal");
             vertical = Input.GetAxis("Vertical");
+
+            if (Input.GetKeyDown(KeyCode.Space)) Jump();
+            if (Input.GetKeyDown(KeyCode.Alpha1)) CastFireball();
+            if (Input.GetKeyDown(KeyCode.Alpha2)) SummonDog();
 #endif
             
             moveInput = new Vector3(horizontal, 0f, vertical).normalized;
-
-            if (Input.GetKeyDown(KeyCode.Space))
-            {
-                Jump();
-            }
-
-            // --- SKILL / ACTION INPUT ---
-            if (Input.GetKeyDown(KeyCode.Alpha1)) CastFireball();
-            if (Input.GetKeyDown(KeyCode.Alpha2)) SummonDog();
         }
 
         private void CastFireball()
@@ -155,26 +151,33 @@ namespace ArenaEnhanced
         
         private void CheckGround()
         {
-            // Improved Ground Check using Capsule Bottom
-            var col = GetComponent<CapsuleCollider>();
-            float radius = col != null ? col.radius * 0.9f : 0.4f;
-            Vector3 origin = transform.position + Vector3.up * radius;
-            isGrounded = Physics.CheckSphere(origin, radius + 0.1f, groundLayer, QueryTriggerInteraction.Ignore);
-            
-            // Debug Visualization
-            // Debug.DrawRay(origin, Vector3.down * (radius + 0.1f), isGrounded ? Color.green : Color.red);
+            var col = GetComponent<Collider>();
+            if (col != null)
+            {
+                float distance = col.bounds.extents.y + 0.1f;
+                // Raycast downwards from the collider's center to ensure robustness regardless of pivot
+                isGrounded = Physics.Raycast(col.bounds.center, Vector3.down, distance, groundLayer, QueryTriggerInteraction.Ignore);
+            }
+            else
+            {
+                // Fallback
+                isGrounded = Physics.Raycast(transform.position, Vector3.down, groundCheckDistance, groundLayer, QueryTriggerInteraction.Ignore);
+            }
         }
         
-        /// <summary>
-        /// Salta si está en el suelo
-        /// </summary>
         public void Jump()
         {
             if (isGrounded)
             {
-                // Reset Y velocity for consistent jump feel
-                rb.linearVelocity = new Vector3(rb.linearVelocity.x, 0f, rb.linearVelocity.z);
-                rb.AddForce(Vector3.up * jumpForce, ForceMode.Impulse);
+                float characterHeight = 2f;
+                var col = GetComponent<Collider>();
+                if (col != null) characterHeight = col.bounds.size.y;
+                
+                float targetHeight = characterHeight * 5f;
+                // required velocity formula v = sqrt(2 * g * h)
+                float jumpVelocity = Mathf.Sqrt(2f * Mathf.Abs(Physics.gravity.y) * targetHeight);
+                
+                rb.linearVelocity = new Vector3(rb.linearVelocity.x, jumpVelocity, rb.linearVelocity.z);
                 isGrounded = false; 
                 
                 if (animator != null)
