@@ -229,8 +229,8 @@ namespace ArenaEnhanced
             var combatant = go.AddComponent<ArenaCombatant>();
             combatant.displayName = "Dog";
             combatant.teamId = owner != null ? owner.teamId : -1;
-            combatant.maxHp = 45f;
-            combatant.hp = 45f;
+            combatant.maxHp = 20f;
+            combatant.hp = 20f;
             combatant.countsForVictory = false;
 
             var dog = go.AddComponent<DogController>();

@@ -13,9 +13,11 @@ namespace ArenaEnhanced
     public class PlayerController : MonoBehaviour
     {
         [Header("Movimiento")]
-        public float moveSpeed = 5f;
+        public float moveSpeed = 12.5f;
         public float rotationSpeed = 10f;
-        public float jumpForce = 5f;
+        public float jumpForce = 12.5f;
+        public float gravityMultiplier = 12.5f;
+
         
         [Header("Ground Check")]
         public LayerMask groundLayer = ~0;
@@ -53,6 +55,15 @@ namespace ArenaEnhanced
         private void FixedUpdate()
         {
             Move();
+            ApplyExtraGravity();
+        }
+
+        private void ApplyExtraGravity()
+        {
+            if (rb.linearVelocity.y < 0)
+            {
+                rb.AddForce(Vector3.down * gravityMultiplier, ForceMode.Acceleration);
+            }
         }
         
         /// <summary>
@@ -84,6 +95,7 @@ namespace ArenaEnhanced
             if (Input.GetKeyDown(KeyCode.Space)) Jump();
             if (Input.GetKeyDown(KeyCode.Alpha1)) CastFireball();
             if (Input.GetKeyDown(KeyCode.Alpha2)) SummonDog();
+            if (Input.GetKeyDown(KeyCode.Alpha3)) PerformMelee();
 #endif
             
             moveInput = new Vector3(horizontal, 0f, vertical).normalized;
@@ -99,6 +111,22 @@ namespace ArenaEnhanced
         {
             var combatant = GetComponent<ArenaEnhanced.ArenaCombatant>();
             RuntimeSpawner.SpawnDog(combatant, transform.position + transform.forward * 2f);
+        }
+
+        private void PerformMelee()
+        {
+            var combatant = GetComponent<ArenaEnhanced.ArenaCombatant>();
+            if (combatant == null || !combatant.IsAlive) return;
+
+            // Randomized attack animations (0-3: LeftPunch, RightPunch, LeftKick, RightKick)
+            int attackType = Random.Range(0, 4);
+            if (animator != null)
+            {
+                animator.SetInteger("AttackType", attackType);
+                animator.SetTrigger("Attack");
+            }
+
+            RuntimeSpawner.SpawnMelee(combatant, transform.position, transform.forward);
         }
         
         /// <summary>
@@ -173,7 +201,7 @@ namespace ArenaEnhanced
                 var col = GetComponent<Collider>();
                 if (col != null) characterHeight = col.bounds.size.y;
                 
-                float targetHeight = characterHeight * 5f;
+                float targetHeight = characterHeight * 3.5f;
                 // required velocity formula v = sqrt(2 * g * h)
                 float jumpVelocity = Mathf.Sqrt(2f * Mathf.Abs(Physics.gravity.y) * targetHeight);
                 
