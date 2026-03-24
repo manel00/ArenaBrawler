@@ -1,0 +1,37 @@
+# ==========================================================
+# .gitignore: MODO "SOLO CÓDIGO (C#)"
+# ==========================================================
+
+# 1. Ignorar absolutamente todo por defecto
+*
+
+# 2. Permitir que Git navegue por las carpetas (vital para encontrar el código)
+!*/
+
+# 3. Rescatar TODOS los scripts de C# y sus archivos meta (vital para Unity), estén donde estén
+!*.cs
+!*.cs.meta
+!*.asmdef
+!*.asmdef.meta
+
+# 4. Rescatar archivos de texto y configuración útiles
+!*.md
+!*.txt
+!*.json
+!.gitignore
+!.clinerules
+
+# 5. Volver a bloquear las carpetas temporales de Unity para que no pierda el tiempo mirándolas
+/[Ll]ibrary/
+/[Tt]emp/
+/[Oo]bj/
+/[Bb]uild/
+/[Bb]uilds/
+/[Ll]ogs/
+/[Uu]ser[Ss]ettings/
+.vs/
+*.csproj
+*.sln
+
+# 6. Bloquear explícitamente esa carpeta gigante del tutorial (por si acaso)
+/Assets/Setup Guide In-Editor Tutorial/
