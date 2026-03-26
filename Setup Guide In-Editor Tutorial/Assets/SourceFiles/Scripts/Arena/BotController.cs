@@ -22,11 +22,15 @@ namespace ArenaEnhanced
         private Vector3 _flatVelocity;
         private float _nextFire;
         private float _strafeSeed;
+        private Animator _animator;
+
+        private static readonly int HashSpeed = Animator.StringToHash("Speed");
 
         private void Awake()
         {
             _rb = GetComponent<Rigidbody>();
             _combatant = GetComponent<ArenaCombatant>();
+            _animator = GetComponentInChildren<Animator>();
             _nextFire = Time.time + Random.Range(0.2f, 1f);
             _strafeSeed = Random.Range(0f, 10f);
         }
@@ -56,6 +60,11 @@ namespace ArenaEnhanced
 
             _flatVelocity = Vector3.MoveTowards(_flatVelocity, moveDir * moveSpeed, acceleration * Time.fixedDeltaTime);
             ApplyHorizontalVelocity();
+
+            if (_animator != null)
+            {
+                _animator.SetFloat(HashSpeed, _flatVelocity.magnitude);
+            }
 
             Vector3 look = Vector3.Scale(toTarget, new Vector3(1f, 0f, 1f));
             if (look.sqrMagnitude > 0.01f)
@@ -108,15 +117,37 @@ namespace ArenaEnhanced
         {
             if (desired.sqrMagnitude < 0.001f) return desired;
             Vector3 origin = transform.position + Vector3.up * 0.7f;
-            if (!Physics.Raycast(origin, desired, 1.8f)) return desired;
+            
+            // Obstacle detection
+            bool obstructed = Physics.Raycast(origin, desired, 1.8f);
+            
+            // Edge detection: look ahead and down
+            Vector3 groundCheckPos = transform.position + desired.normalized * 1.5f + Vector3.up * 0.5f;
+            bool isEdge = !Physics.Raycast(groundCheckPos, Vector3.down, 2f);
+
+            if (!obstructed && !isEdge) return desired;
 
             Vector3 right = Vector3.Cross(Vector3.up, desired).normalized;
-            bool blockedRight = Physics.Raycast(origin, right, 1.2f);
-            bool blockedLeft = Physics.Raycast(origin, -right, 1.2f);
+            
+            // Check alternatives
+            bool altRightSafe = IsSafe(origin, right, 1.2f);
+            bool altLeftSafe = IsSafe(origin, -right, 1.2f);
 
-            if (!blockedRight) return (desired + right).normalized;
-            if (!blockedLeft) return (desired - right).normalized;
+            if (altRightSafe) return (desired + right).normalized;
+            if (altLeftSafe) return (desired - right).normalized;
             return -desired;
+        }
+
+        private bool IsSafe(Vector3 origin, Vector3 dir, float dist)
+        {
+            // Obstacle check
+            if (Physics.Raycast(origin, dir, dist)) return false;
+            
+            // Edge check
+            Vector3 groundCheckPos = transform.position + dir.normalized * 1.5f + Vector3.up * 0.5f;
+            if (!Physics.Raycast(groundCheckPos, Vector3.down, 2f)) return false;
+            
+            return true;
         }
     }
 }

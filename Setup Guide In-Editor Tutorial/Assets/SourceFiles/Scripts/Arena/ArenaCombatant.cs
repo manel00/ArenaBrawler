@@ -12,7 +12,8 @@ namespace ArenaEnhanced
         public static List<ArenaCombatant> All => _allCombatants;
         public static event System.Action<ArenaCombatant, ArenaCombatant> Died;
 
-        [Header("Identity")]
+        [Header("Data & Identity")]
+        public CombatantData data;
         public string displayName = "Fighter";
         public int teamId = 0;
         public bool isPlayer = false;
@@ -20,12 +21,10 @@ namespace ArenaEnhanced
         public bool countsForVictory = true;
         public int level = 1;
 
-        [Header("Stats")]
+        [Header("Runtime Stats")]
         public float maxHp = 100f;
         public float hp = 100f;
         public float moveSpeed = 5f;
-        
-        [Header("Combate")]
         public float damage = 10f;
         public float attackRange = 2f;
         public float attackCooldown = 0.5f;
@@ -39,6 +38,18 @@ namespace ArenaEnhanced
         private float lastAttackTime;
         private Vector3 _spawnPosition;
 
+        private void InitializeFromData()
+        {
+            if (data == null) return;
+            displayName = data.displayName;
+            maxHp = data.maxHp;
+            hp = maxHp;
+            moveSpeed = data.moveSpeed;
+            damage = data.damage;
+            attackRange = data.attackRange;
+            attackCooldown = data.attackCooldown;
+        }
+
         // Propiedades
         public bool IsAlive => hp > 0.01f;
         public bool Alive => IsAlive; // Alias para compatibilidad con ArenaEnhanced.cs
@@ -50,6 +61,7 @@ namespace ArenaEnhanced
 
         private void Start()
         {
+            if (data != null) InitializeFromData();
             if (hp <= 0.01f) hp = maxHp;
             _spawnPosition = transform.position;
             OnHealthChanged?.Invoke(hp, maxHp);
@@ -57,12 +69,20 @@ namespace ArenaEnhanced
 
         private void OnEnable()
         {
-            if (!_allCombatants.Contains(this)) _allCombatants.Add(this);
+            if (!_allCombatants.Contains(this)) 
+            {
+                _allCombatants.Add(this);
+                Debug.Log($"[ArenaCombatant] {displayName} añadido a la lista global. Total: {_allCombatants.Count}");
+            }
         }
 
         private void OnDisable()
         {
-            _allCombatants.Remove(this);
+            if (_allCombatants.Contains(this))
+            {
+                _allCombatants.Remove(this);
+                Debug.Log($"[ArenaCombatant] {displayName} removido de la lista global. Total: {_allCombatants.Count}");
+            }
         }
 
         private void Update()
@@ -92,7 +112,7 @@ namespace ArenaEnhanced
             if (hp <= 0)
             {
                 Die();
-                if (source != null) Died?.Invoke(source, this);
+                Died?.Invoke(source, this);
             }
         }
 
@@ -140,9 +160,9 @@ namespace ArenaEnhanced
 
             if (isPlayer)
             {
-                var anim = GetComponentInChildren<Animator>();
-                if (anim != null) anim.enabled = false;
-                
+                var pc = GetComponent<PlayerController>();
+                if (pc != null) pc.enabled = false;
+
                 var rb = GetComponent<Rigidbody>();
                 if (rb != null)
                 {

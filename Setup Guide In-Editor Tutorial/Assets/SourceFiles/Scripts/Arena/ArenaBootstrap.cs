@@ -14,493 +14,9 @@ using UnityEngine.InputSystem;
 
 namespace ArenaEnhanced
 {
-    // Las clases ArenaCombatant, PlayerController y ArenaHUD se han movido a sus propios archivos .cs
-    // para mejorar la organización y evitar conflictos de nombres.
-
     // ============================================================
-    // PROJECTILE
+    // Orchestrator
     // ============================================================
-    public class FireballProjectile : MonoBehaviour
-    {
-        public ArenaCombatant owner;
-        public float minDamage = 5f;
-        public float maxDamage = 10f;
-        public float knockback = 8f;
-        public float lifeTime = 5f;
-
-        private Rigidbody _rb;
-        private TrailRenderer _trail;
-
-        private void Awake()
-        {
-            _rb = GetComponent<Rigidbody>();
-            _trail = GetComponentInChildren<TrailRenderer>();
-        }
-
-        private void Start()
-        {
-            Destroy(gameObject, lifeTime);
-        }
-
-        private void OnTriggerEnter(Collider other)
-        {
-            var target = other.GetComponent<ArenaCombatant>();
-            if (target == null) target = other.GetComponentInParent<ArenaCombatant>();
-
-            if (target != null && owner != null && target != owner && target.teamId != owner.teamId && target.IsAlive)
-            {
-                float damage = Random.Range(minDamage, maxDamage) * owner.damageMultiplier;
-                target.TakeDamage(damage, owner);
-                VFXManager.SpawnImpactEffect(transform.position);
-                Destroy(gameObject);
-            }
-            else if (other.gameObject != owner.gameObject)
-            {
-                // Destroy on wall hit or other obstacles (excluding owner)
-                Destroy(gameObject);
-            }
-        }
-    }
-
-    // ============================================================
-    // MELEE ATTACK
-    // ============================================================
-    public class MeleeAttack : MonoBehaviour
-    {
-        public ArenaCombatant owner;
-        public float damage = 15f;
-        public float range = 2.5f;
-        public float knockback = 12f;
-        public float duration = 0.3f;
-
-        private float _startTime;
-
-        private void Start()
-        {
-            _startTime = Time.time;
-        }
-
-        private void Update()
-        {
-            if (Time.time - _startTime > duration)
-            {
-                Destroy(gameObject);
-                return;
-            }
-
-            if (owner == null) return;
-
-            foreach (var c in ArenaCombatant.All)
-            {
-                if (c == null || !c.IsAlive || c == owner || c.teamId == owner.teamId) continue;
-                float dist = Vector3.Distance(transform.position, c.transform.position);
-                if (dist <= range)
-                {
-                    c.TakeDamage(damage * owner.damageMultiplier, owner);
-                    VFXManager.SpawnImpactEffect(c.transform.position + Vector3.up);
-                    Destroy(gameObject);
-                    return;
-                }
-            }
-        }
-    }
-
-    // ============================================================
-    // SPAWNER
-    // ============================================================
-    public static class RuntimeSpawner
-    {
-        public static void SpawnFireball(ArenaCombatant owner, Vector3 origin, Vector3 direction, float speed)
-        {
-            var go = GameObject.CreatePrimitive(PrimitiveType.Sphere);
-            go.name = "Fireball";
-            go.transform.position = origin;
-            go.transform.localScale = Vector3.one * 0.45f;
-
-            var renderer = go.GetComponent<Renderer>();
-            if (renderer != null)
-            {
-                var mat = new Material(Shader.Find("Universal Render Pipeline/Lit"));
-                mat.color = new Color(1f, 0.35f, 0.1f);
-                mat.EnableKeyword("_EMISSION");
-                mat.SetColor("_EmissionColor", new Color(1f, 0.4f, 0.1f) * 2f);
-                renderer.material = mat;
-            }
-
-            var rb = go.AddComponent<Rigidbody>();
-            rb.mass = 0.8f;
-            rb.useGravity = false; // Desactivar gravedad para que vuele recto
-            rb.collisionDetectionMode = CollisionDetectionMode.ContinuousDynamic;
-            rb.linearVelocity = direction.normalized * speed;
-
-            var col = go.GetComponent<SphereCollider>();
-            if (col != null) col.isTrigger = true;
-
-            var trail = go.AddComponent<TrailRenderer>();
-            trail.time = 0.4f;
-            trail.startWidth = 0.4f;
-            trail.endWidth = 0.05f;
-            trail.material = new Material(Shader.Find("Sprites/Default"));
-            trail.startColor = new Color(1f, 0.5f, 0.1f, 1f);
-            trail.endColor = new Color(1f, 0.2f, 0f, 0f);
-
-            var projectile = go.AddComponent<FireballProjectile>();
-            projectile.owner = owner;
-
-            if (owner != null)
-            {
-                var ownerCol = owner.GetComponent<Collider>();
-                var projCol = go.GetComponent<Collider>();
-                if (ownerCol != null && projCol != null)
-                    Physics.IgnoreCollision(ownerCol, projCol);
-            }
-
-            AudioManager.PlayFireball();
-        }
-
-        public static void SpawnMelee(ArenaCombatant owner, Vector3 position, Vector3 forward)
-        {
-            var go = new GameObject("MeleeSwing");
-            go.transform.position = position + forward * 1.2f;
-
-            var melee = go.AddComponent<MeleeAttack>();
-            melee.owner = owner;
-
-            VFXManager.SpawnMeleeEffect(go.transform.position, forward);
-            AudioManager.PlayMelee();
-        }
-        public static DogController SpawnDog(ArenaCombatant owner, Vector3 position)
-        {
-            var go = new GameObject("SummonedDog");
-            go.transform.position = position;
-
-            // Build slave visual using primitives — 100% guaranteed visible regardless of asset import state
-            {
-                var slaveMat = new Material(Shader.Find("Universal Render Pipeline/Lit"));
-                slaveMat.color = new Color(0.65f, 0.45f, 1f); // Purple tint
-
-                // Body
-                var body = GameObject.CreatePrimitive(PrimitiveType.Capsule);
-                body.name = "SlaveBody";
-                body.transform.SetParent(go.transform);
-                body.transform.localPosition = new Vector3(0f, 0.55f, 0f);
-                body.transform.localScale = new Vector3(0.45f, 0.35f, 0.45f);
-                body.GetComponent<Renderer>().material = slaveMat;
-                Object.DestroyImmediate(body.GetComponent<Collider>());
-
-                // Head
-                var head = GameObject.CreatePrimitive(PrimitiveType.Sphere);
-                head.name = "SlaveHead";
-                head.transform.SetParent(go.transform);
-                head.transform.localPosition = new Vector3(0f, 1.15f, 0f);
-                head.transform.localScale = Vector3.one * 0.35f;
-                var headMat = new Material(slaveMat); // copy
-                headMat.color = new Color(0.45f, 0.3f, 0.85f); // darker purple
-                head.GetComponent<Renderer>().material = headMat;
-                Object.DestroyImmediate(head.GetComponent<Collider>());
-
-                // Eyes
-                var eyeMat = new Material(Shader.Find("Universal Render Pipeline/Lit"));
-                eyeMat.color = new Color(1f, 0.9f, 0.1f); // yellow glowing eyes
-                eyeMat.EnableKeyword("_EMISSION");
-                eyeMat.SetColor("_EmissionColor", new Color(1f, 0.8f, 0f) * 3f);
-
-                foreach (var offset in new[] { new Vector3(-0.07f, 1.17f, 0.14f), new Vector3(0.07f, 1.17f, 0.14f) })
-                {
-                    var eye = GameObject.CreatePrimitive(PrimitiveType.Sphere);
-                    eye.name = "SlaveEye";
-                    eye.transform.SetParent(go.transform);
-                    eye.transform.localPosition = offset;
-                    eye.transform.localScale = Vector3.one * 0.09f;
-                    eye.GetComponent<Renderer>().material = eyeMat;
-                    Object.DestroyImmediate(eye.GetComponent<Collider>());
-                }
-            }
-
-            var col = go.AddComponent<CapsuleCollider>();
-            col.radius = 0.5f;
-            col.height = 1f;
-            col.center = new Vector3(0, 0.5f, 0);
-
-            var rb = go.AddComponent<Rigidbody>();
-            rb.mass = 32f;
-            rb.constraints = RigidbodyConstraints.FreezeRotationX | RigidbodyConstraints.FreezeRotationZ;
-
-            var combatant = go.AddComponent<ArenaCombatant>();
-            combatant.displayName = "Dog";
-            combatant.teamId = owner != null ? owner.teamId : -1;
-            combatant.maxHp = 20f;
-            combatant.hp = 20f;
-            combatant.countsForVictory = false;
-
-            var dog = go.AddComponent<DogController>();
-            dog.owner = owner;
-
-            // Ignore collision between dog and its owner to avoid being trapped or bugged
-            if (owner != null)
-            {
-                var ownerCol = owner.GetComponent<Collider>();
-                var dogCol = go.GetComponent<Collider>();
-                if (ownerCol != null && dogCol != null)
-                    Physics.IgnoreCollision(ownerCol, dogCol);
-            }
-
-            Debug.Log($"[SpawnDog] Perro invocado en {position} para {owner?.displayName}");
-
-            return dog;
-        }
-    }
-
-    // Las clases BotController y DogController se han movido a sus propios archivos .cs
-
-    // ============================================================
-    // PICKUP
-    // ============================================================
-    public enum PickupType { Heal, DamageBuff }
-
-    public class ArenaPickup : MonoBehaviour
-    {
-        public PickupType type = PickupType.Heal;
-        public float healAmount = 25f;
-        public float buffMultiplier = 1.5f;
-        public float buffDuration = 10f;
-        public float rotationSpeed = 90f;
-        public float bobAmp = 0.2f;
-        public float bobSpeed = 2f;
-        public float lifeTime = 20f;
-
-        private Vector3 _basePos;
-
-        private void Start()
-        {
-            _basePos = transform.position;
-            Destroy(gameObject, lifeTime);
-        }
-
-        private void Update()
-        {
-            transform.Rotate(Vector3.up, rotationSpeed * Time.deltaTime, Space.World);
-            transform.position = new Vector3(_basePos.x, _basePos.y + Mathf.Sin(Time.time * bobSpeed) * bobAmp, _basePos.z);
-        }
-
-        private void OnTriggerEnter(Collider other)
-        {
-            var c = other.GetComponentInParent<ArenaCombatant>();
-            if (c == null || !c.IsAlive) return;
-
-            if (type == PickupType.Heal) c.Heal(healAmount);
-            else {
-                // c.BuffDamage(buffMultiplier, buffDuration); // No incluido en la versión actual de ArenaCombatant
-            }
-
-            AudioManager.PlayPickup();
-            Destroy(gameObject);
-        }
-    }
-
-    // ============================================================
-    // VFX MANAGER
-    // ============================================================
-    public static class VFXManager
-    {
-        public static void SpawnImpactEffect(Vector3 pos)
-        {
-            var go = GameObject.CreatePrimitive(PrimitiveType.Sphere);
-            go.transform.position = pos;
-            go.transform.localScale = Vector3.one * 0.5f;
-            var r = go.GetComponent<Renderer>();
-            if (r != null)
-            {
-                var mat = new Material(Shader.Find("Universal Render Pipeline/Lit"));
-                mat.color = new Color(1f, 0.8f, 0.2f);
-                mat.EnableKeyword("_EMISSION");
-                mat.SetColor("_EmissionColor", new Color(1f, 0.6f, 0.1f) * 3f);
-                r.material = mat;
-            }
-            Object.Destroy(go.GetComponent<Collider>());
-            Object.Destroy(go, 0.3f);
-        }
-
-        public static void SpawnDeathEffect(Vector3 pos)
-        {
-            for (int i = 0; i < 8; i++)
-            {
-                var go = GameObject.CreatePrimitive(PrimitiveType.Cube);
-                go.transform.position = pos + Random.insideUnitSphere * 0.5f;
-                go.transform.localScale = Vector3.one * Random.Range(0.1f, 0.3f);
-                var r = go.GetComponent<Renderer>();
-                if (r != null) r.material.color = new Color(0.3f, 0.3f, 0.3f);
-                Object.Destroy(go.GetComponent<Collider>());
-                var rb = go.AddComponent<Rigidbody>();
-                rb.linearVelocity = Random.insideUnitSphere * 5f + Vector3.up * 3f;
-                Object.Destroy(go, 1.5f);
-            }
-        }
-
-        public static void SpawnShieldEffect(Transform parent)
-        {
-            var go = GameObject.CreatePrimitive(PrimitiveType.Sphere);
-            go.transform.SetParent(parent);
-            go.transform.localPosition = Vector3.up;
-            go.transform.localScale = Vector3.one * 2.5f;
-            var r = go.GetComponent<Renderer>();
-            if (r != null)
-            {
-                var mat = new Material(Shader.Find("Universal Render Pipeline/Lit"));
-                mat.color = new Color(0.3f, 0.6f, 1f, 0.3f);
-                r.material = mat;
-            }
-            Object.Destroy(go.GetComponent<Collider>());
-            Object.Destroy(go, 3f);
-        }
-
-        public static void SpawnDashEffect(Vector3 pos)
-        {
-            for (int i = 0; i < 5; i++)
-            {
-                var go = GameObject.CreatePrimitive(PrimitiveType.Cube);
-                go.transform.position = pos + Vector3.up * 0.5f + Random.insideUnitSphere * 0.3f;
-                go.transform.localScale = Vector3.one * 0.15f;
-                var r = go.GetComponent<Renderer>();
-                if (r != null) r.material.color = new Color(0.8f, 0.8f, 1f, 0.6f);
-                Object.Destroy(go.GetComponent<Collider>());
-                Object.Destroy(go, 0.4f);
-            }
-        }
-
-        public static void SpawnMeleeEffect(Vector3 pos, Vector3 dir)
-        {
-            var go = GameObject.CreatePrimitive(PrimitiveType.Cube);
-            go.transform.position = pos + dir * 0.5f;
-            go.transform.localScale = new Vector3(2f, 0.3f, 0.3f);
-            go.transform.rotation = Quaternion.LookRotation(dir);
-            var r = go.GetComponent<Renderer>();
-            if (r != null)
-            {
-                var mat = new Material(Shader.Find("Universal Render Pipeline/Lit"));
-                mat.color = new Color(1f, 1f, 1f, 0.7f);
-                r.material = mat;
-            }
-            Object.Destroy(go.GetComponent<Collider>());
-            Object.Destroy(go, 0.2f);
-        }
-    }
-
-    // ============================================================
-    // DAMAGE NUMBER
-    // ============================================================
-    public class DamageNumber : MonoBehaviour
-    {
-        public float lifetime = 1f;
-        private float _startTime;
-        private Vector3 _velocity;
-
-        private void Start()
-        {
-            _startTime = Time.time;
-            _velocity = Vector3.up * 3f + Random.insideUnitSphere * 0.5f;
-        }
-
-        private void Update()
-        {
-            float t = (Time.time - _startTime) / lifetime;
-            if (t >= 1f) { Destroy(gameObject); return; }
-
-            transform.position += _velocity * Time.deltaTime;
-            _velocity.y -= 2f * Time.deltaTime;
-
-            var text = GetComponent<TextMesh>();
-            if (text != null)
-            {
-                Color c = text.color;
-                c.a = 1f - t;
-                text.color = c;
-            }
-        }
-    }
-
-    // ============================================================
-    // AUDIO MANAGER
-    // ============================================================
-    public static class AudioManager
-    {
-        private static AudioSource _source;
-
-        private static AudioSource GetSource()
-        {
-            if (_source == null)
-            {
-                var go = new GameObject("AudioManager");
-                Object.DontDestroyOnLoad(go);
-                _source = go.AddComponent<AudioSource>();
-                _source.playOnAwake = false;
-                _source.volume = 0.5f;
-            }
-            return _source;
-        }
-
-        public static void PlayFireball() => PlayTone(400f, 0.1f);
-        public static void PlayHit() => PlayTone(200f, 0.08f);
-        public static void PlayDeath() => PlayTone(100f, 0.3f);
-        public static void PlayShield() => PlayTone(600f, 0.15f);
-        public static void PlayDash() => PlayTone(500f, 0.08f);
-        public static void PlayMelee() => PlayTone(250f, 0.1f);
-        public static void PlayPickup() => PlayTone(800f, 0.1f);
-
-        private static void PlayTone(float freq, float duration)
-        {
-            var src = GetSource();
-            int sampleRate = 44100;
-            int samples = Mathf.CeilToInt(sampleRate * duration);
-            var clip = AudioClip.Create("tone", samples, 1, sampleRate, false);
-            float[] data = new float[samples];
-            for (int i = 0; i < samples; i++)
-            {
-                float t = (float)i / sampleRate;
-                data[i] = Mathf.Sin(2f * Mathf.PI * freq * t) * Mathf.Max(0f, 1f - (float)i / samples);
-            }
-            clip.SetData(data, 0);
-            src.PlayOneShot(clip);
-        }
-    }
-
-    // ============================================================
-    // CAMERA FOLLOW
-    // ============================================================
-    public class ArenaCameraFollow : MonoBehaviour
-    {
-        public Transform target;
-        public Vector3 offset = new Vector3(0f, 7f, -9f);
-        public float smooth = 5f;
-        public float rotationSpeed = 5f;
-        public float minDistance = 5f;
-        public float maxDistance = 15f;
-        public float zoomSpeed = 2f;
-
-        private float _currentDistance;
-        private float _targetDistance;
-        private Vector3 _currentOffset;
-
-        private void Start()
-        {
-            _currentDistance = offset.magnitude;
-            _targetDistance = _currentDistance;
-            _currentOffset = offset.normalized;
-
-            gameObject.tag = "MainCamera";
-        }
-
-        private void LateUpdate()
-        {
-            if (target == null) return;
-
-            // Rotación de la cámara (WoW-style follow)
-            // Se puede extender para orbitar con el mouse
-            Vector3 desiredPosition = target.position + target.rotation * offset;
-            transform.position = Vector3.Lerp(transform.position, desiredPosition, smooth * Time.deltaTime);
-            transform.LookAt(target.position + Vector3.up * 1.5f);
-        }
-    }
 
     // ============================================================
     // GAME MANAGER
@@ -513,14 +29,28 @@ namespace ArenaEnhanced
     // ============================================================
     public class ArenaBootstrap : MonoBehaviour
     {
-        public int bots = 3;
+        [Header("Fallback (overridden by PlayerPrefs from WelcomeScreen)")]
+        public int defaultBots = 3;
+        public string defaultPlayerName = "Survivor";
 
         private void Start()
         {
-            Debug.Log("[ArenaBootstrap] Start: Initializing arena...");
+            Debug.Log("[ArenaBootstrap] Start: Initializing Horde Survival arena...");
             BuildEnvironment();
-            // SpawnWeaponsOnFloor(); // Removed to keep arena clean as requested
-            BuildArenaMatch();
+            
+            // Wait for user to choose bots if in arena directly
+            var hud = FindAnyObjectByType<ArenaHUD>();
+            if (hud != null)
+            {
+                hud.Initialize(null); // Initial setup
+                hud.ShowMatchSetup((botCount) => {
+                    BuildArenaMatch(botCount);
+                });
+            }
+            else
+            {
+                BuildArenaMatch();
+            }
         }
 
         private void SpawnWeaponsOnFloor()
@@ -569,27 +99,36 @@ namespace ArenaEnhanced
 #endif
         }
 
-        private void BuildArenaMatch()
+        private void BuildArenaMatch(int overrideBotCount = -1)
         {
-            var player = SpawnFighter("Player", new Vector3(0f, 1.2f, -6f), new Color(0.2f, 0.8f, 1f), 1, true);
+            // Read settings from WelcomeScreen (PlayerPrefs)
+            string playerName = PlayerPrefs.GetString("PlayerName", defaultPlayerName);
+            int botCount = overrideBotCount >= 0 ? overrideBotCount : PlayerPrefs.GetInt("BotCount", defaultBots);
+            Debug.Log($"[ArenaBootstrap] BuildArenaMatch: Player={playerName}, AlliedBots={botCount}");
 
-            float radius = 10f;
-            Debug.Log($"[ArenaBootstrap] BuildArenaMatch: Spawning {bots} bots...");
-            for (int i = 0; i < bots; i++)
+            // Spawn Player (Team 1)
+            var player = SpawnFighter(playerName, new Vector3(0f, 1.2f, -6f), new Color(0.2f, 0.8f, 1f), 1, true);
+            if (player != null)
+                player.displayName = playerName;
+
+            // Spawn Allied Bots (also Team 1 - NO friendly fire)
+            float radius = 8f;
+            for (int i = 0; i < botCount; i++)
             {
-                float angle = (Mathf.PI * 2f / Mathf.Max(1, bots)) * i;
+                float angle = (Mathf.PI * 2f / Mathf.Max(1, botCount)) * i;
                 Vector3 pos = new Vector3(Mathf.Cos(angle), 1.2f, Mathf.Sin(angle)) * radius;
-                SpawnFighter($"Bot_{i + 1}", pos, new Color(1f, 0.35f, 0.35f), 10 + i, false);
+                var bot = SpawnFighter($"Ally_{i + 1}", pos, new Color(0.4f, 1f, 0.4f), 1, false); // Same team as player!
+                if (bot != null) bot.displayName = $"Ally Bot {i + 1}";
             }
 
             if (player != null)
             {
-                Debug.Log("[ArenaBootstrap] BuildArenaMatch: Setting up camera...");
                 SetupMainCamera(player.transform);
             }
             else
             {
                 Debug.LogError("[ArenaBootstrap] BuildArenaMatch: Player spawn FAILED!");
+                return;
             }
 
             // Setup Game Manager
@@ -597,10 +136,18 @@ namespace ArenaEnhanced
             var gm = gmGo.AddComponent<ArenaGameManager>();
             gm.player = player;
 
-            // Setup Premium HUD
+            // Setup HUD
             var hudGo = new GameObject("ArenaHUD");
             var hud = hudGo.AddComponent<ArenaHUD>();
             hud.Initialize(player);
+
+            // === HORDE WAVE MANAGER ===
+            var waveGo = new GameObject("HordeWaveManager");
+            var waveManager = waveGo.AddComponent<HordeWaveManager>();
+            waveManager.arenaRadius = 38f;
+            waveManager.StartHorde(player);
+
+            Debug.Log("[ArenaBootstrap] Horde Survival started!");
         }
 
         private void BuildEnvironment()
@@ -608,13 +155,29 @@ namespace ArenaEnhanced
  #if UNITY_EDITOR
             var envGroup = new GameObject("Environment");
 
-            // Synty Ground Material
+            // === EXPANDED ARENA GROUND (4x bigger) ===
             var terrainMat = AssetDatabase.LoadAssetAtPath<Material>("Assets/Synty/PolygonGeneric/Materials/Generic_Overview_Map_Ground.mat");
             var ground = GameObject.CreatePrimitive(PrimitiveType.Plane);
             ground.name = "ArenaGround";
             ground.transform.SetParent(envGroup.transform);
-            ground.transform.localScale = new Vector3(8f, 1f, 8f);
+            ground.transform.localScale = new Vector3(64f, 1f, 64f); // 4x expanded
             if (terrainMat != null) ground.GetComponent<Renderer>().material = terrainMat;
+
+            // Second ground tile for extra visual coverage at edges
+            for (int ix = -1; ix <= 1; ix++)
+            {
+                for (int iz = -1; iz <= 1; iz++)
+                {
+                    if (ix == 0 && iz == 0) continue;
+                    var tile = GameObject.CreatePrimitive(PrimitiveType.Plane);
+                    tile.name = "ArenaGround_Tile";
+                    tile.transform.SetParent(envGroup.transform);
+                    tile.transform.position = new Vector3(ix * 640f, 0f, iz * 640f);
+                    tile.transform.localScale = new Vector3(64f, 1f, 64f);
+                    if (terrainMat != null) tile.GetComponent<Renderer>().material = terrainMat;
+                    Object.DestroyImmediate(tile.GetComponent<Collider>());
+                }
+            }
 
             string[] treePaths = {
                 "Assets/Synty/PolygonGeneric/Prefabs/Environment/SM_Gen_Env_Tree_01.prefab",
@@ -626,30 +189,37 @@ namespace ArenaEnhanced
                 "Assets/Synty/PolygonGeneric/Prefabs/Environment/SM_Gen_Env_Rock_04.prefab"
             };
 
-            // Scatter Trees
-            for (int i = 0; i < 50; i++)
+            // Scatter Trees around the wide perimeter - all tagged as DESTRUCTIBLE
+            for (int i = 0; i < 70; i++)
             {
                 var prefab = AssetDatabase.LoadAssetAtPath<GameObject>(treePaths[Random.Range(0, treePaths.Length)]);
                 if (prefab != null)
                 {
-                    var tree = Instantiate(prefab, GetRandomPositionWithoutCenter(14f, 38f), Quaternion.Euler(0, Random.Range(0, 360), 0), envGroup.transform);
+                    var tree = Instantiate(prefab, GetRandomPositionWithoutCenter(20f, 55f), Quaternion.Euler(0, Random.Range(0, 360), 0), envGroup.transform);
                     float s = Random.Range(0.8f, 1.5f);
                     tree.transform.localScale = new Vector3(s, s, s);
                     var cols = tree.GetComponentsInChildren<Collider>();
-                    foreach(var col in cols) Destroy(col); // Prevent getting stuck in leaves
-                    tree.AddComponent<CapsuleCollider>().radius = 0.5f; // Only trunk collision
+                    foreach (var col in cols) Destroy(col);
+                    var treeCol = tree.AddComponent<CapsuleCollider>();
+                    treeCol.radius = 0.5f;
+                    treeCol.height = 4f;
+                    treeCol.center = new Vector3(0, 2f, 0);
+                    // === DESTRUCTIBLE - Bosses can shatter trees ===
+                    tree.AddComponent<DestructibleEnvironment>();
                 }
             }
 
-            // Scatter Rocks
-            for (int i = 0; i < 20; i++)
+            // Scatter Rocks - also DESTRUCTIBLE
+            for (int i = 0; i < 30; i++)
             {
                 var prefab = AssetDatabase.LoadAssetAtPath<GameObject>(rockPaths[Random.Range(0, rockPaths.Length)]);
                 if (prefab != null)
                 {
-                    var rock = Instantiate(prefab, GetRandomPositionWithoutCenter(10f, 38f), Quaternion.Euler(0, Random.Range(0, 360), 0), envGroup.transform);
-                    float s = Random.Range(0.8f, 2.0f);
+                    var rock = Instantiate(prefab, GetRandomPositionWithoutCenter(15f, 55f), Quaternion.Euler(0, Random.Range(0, 360), 0), envGroup.transform);
+                    float s = Random.Range(0.8f, 2.2f);
                     rock.transform.localScale = new Vector3(s, s, s);
+                    // === DESTRUCTIBLE
+                    rock.AddComponent<DestructibleEnvironment>();
                 }
             }
 #endif
@@ -663,9 +233,63 @@ namespace ArenaEnhanced
                 float x = Random.Range(-maxRadius, maxRadius);
                 float z = Random.Range(-maxRadius, maxRadius);
                 Vector3 pos = new Vector3(x, 0, z);
+                
+                // Exclude central white square (30x30m -> 15m radius/half-extent)
+                // We use 16m for a small safety margin.
+                if (Mathf.Abs(pos.x) < 16f && Mathf.Abs(pos.z) < 16f) continue;
+                
                 if (pos.magnitude > minRadius) return pos;
             }
             return new Vector3(maxRadius, 0, maxRadius);
+        }
+
+        private static ArenaCombatant SpawnBoss(Vector3 position)
+        {
+            var go = new GameObject("Mech_Boss");
+            go.transform.position = position;
+
+#if UNITY_EDITOR
+            string robotPath = "Assets/Models/Characters/Mech/Mech_FinnTheFrog.fbx";
+            GameObject modelPrefab = UnityEditor.AssetDatabase.LoadAssetAtPath<GameObject>(robotPath);
+
+            if (modelPrefab != null)
+            {
+                var model = Object.Instantiate(modelPrefab, go.transform);
+                model.transform.localPosition = Vector3.zero;
+                model.transform.localRotation = Quaternion.Euler(0f, 180f, 0f); // Default rotation
+                model.transform.localScale = Vector3.one * 1.25f; // Scaled to 25% of previous 5x (1.25x player)
+                
+                // Remove existing colliders
+                foreach (var c in model.GetComponentsInChildren<Collider>(true)) Object.DestroyImmediate(c);
+            }
+            else
+            {
+                Debug.LogError("[ArenaBootstrap] Boss Mech FBX not found at " + robotPath);
+            }
+#endif
+            var col = go.AddComponent<CapsuleCollider>();
+            col.height = 1.8f * 1.25f;
+            col.radius = 0.4f * 1.25f;
+            col.center = new Vector3(0, 0.9f * 1.25f, 0);
+
+            var rb = go.AddComponent<Rigidbody>();
+            rb.mass = 120f; // Adjusted mass for smaller size (but still heavy)
+            rb.constraints = RigidbodyConstraints.FreezeRotationX | RigidbodyConstraints.FreezeRotationZ;
+
+            var combatant = go.AddComponent<ArenaCombatant>();
+            combatant.displayName = "Mech Boss";
+            combatant.teamId = 99;
+            combatant.isPlayer = false;
+            combatant.maxHp = 200f;
+            combatant.hp = 200f;
+
+            go.AddComponent<BossController>();
+            
+            var hpBar = go.AddComponent<WorldHPBar>();
+            hpBar.combatant = combatant;
+            hpBar.label = "Mech Boss";
+
+            return combatant;
         }
 
         private static ArenaCombatant SpawnFighter(string fighterName, Vector3 position, Color color, int team, bool isPlayer)

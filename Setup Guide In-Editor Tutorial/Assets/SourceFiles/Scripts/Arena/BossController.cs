@@ -3,19 +3,20 @@ using UnityEngine;
 namespace ArenaEnhanced
 {
     /// <summary>
-    /// Controlador físico para robots esclavos (Domestic Robot)
+    /// Controlador de IA para el Boss Mech
     /// </summary>
     [RequireComponent(typeof(Rigidbody))]
     [RequireComponent(typeof(ArenaCombatant))]
-    public class DogController : MonoBehaviour
+    public class BossController : MonoBehaviour
     {
-        public ArenaCombatant owner;
-        public float moveSpeed = 6.5f;
-        public float acceleration = 35f;
-        public float detectDistance = 20f; 
-        public float attackRange = 1.3f;
-        public float attackCooldown = 1.5f;
-        public float lifeDuration = 60f;
+        [Header("Stats")]
+        public float moveSpeed = 8f;
+        public float acceleration = 25f;
+        public float detectDistance = 100f; 
+        public float attackRange = 3f;
+        public float attackCooldown = 2f;
+        public float minDamage = 10f;
+        public float maxDamage = 20f;
 
         private ArenaCombatant _combatant;
         private Rigidbody _rb;
@@ -23,13 +24,20 @@ namespace ArenaEnhanced
         private float _nextAttack;
         private float _nextSearchTime;
         private Vector3 _flatVelocity;
+        private Animator _animator;
+
+        // Animator hashes
+        private static readonly int HashSpeed = Animator.StringToHash("Speed");
+        private static readonly int HashAttackType = Animator.StringToHash("AttackType");
+        private static readonly int HashAttackTrigger = Animator.StringToHash("AttackTrigger");
 
         private void Awake()
         {
             _combatant = GetComponent<ArenaCombatant>();
             _rb = GetComponent<Rigidbody>();
+            _animator = GetComponentInChildren<Animator>();
             
-            // Configuración física básica
+            // Configuración física
             _rb.useGravity = true;
             _rb.isKinematic = false;
             _rb.constraints = RigidbodyConstraints.FreezeRotationX | RigidbodyConstraints.FreezeRotationZ;
@@ -37,7 +45,11 @@ namespace ArenaEnhanced
 
         private void Start()
         {
-            Destroy(gameObject, lifeDuration);
+            // Set stats for Boss
+            _combatant.maxHp = 200f;
+            _combatant.hp = 200f;
+            _combatant.teamId = 99; // Unique team to attack everyone
+            _combatant.displayName = "Mech Boss";
         }
 
         private void FixedUpdate()
@@ -48,21 +60,17 @@ namespace ArenaEnhanced
                 return;
             }
 
-            // Búsqueda de objetivo (Enemigo o Dueño)
             if (Time.time >= _nextSearchTime)
             {
-                _currentTarget = NearestEnemy();
-                if (_currentTarget == null && owner != null && owner.IsAlive)
-                {
-                    _currentTarget = owner;
-                }
-                _nextSearchTime = Time.time + 0.2f;
+                _currentTarget = NearestTarget();
+                _nextSearchTime = Time.time + 0.5f;
             }
 
             if (_currentTarget == null)
             {
                 _flatVelocity = Vector3.MoveTowards(_flatVelocity, Vector3.zero, acceleration * Time.fixedDeltaTime);
                 ApplyMovement();
+                UpdateAnimator(0f);
                 return;
             }
 
@@ -70,26 +78,34 @@ namespace ArenaEnhanced
             float dist = toTarget.magnitude;
             Vector3 moveDir = Vector3.zero;
 
-            // Lógica de seguimiento: si es enemigo, se lanza. Si es dueño, se acerca y para.
-            float stopDist = (_currentTarget == owner) ? 2.5f : attackRange * 0.85f;
+            float stopDist = attackRange * 0.85f;
 
             if (dist > stopDist)
             {
                 moveDir = toTarget.normalized;
-
-                // Edge detection
-                Vector3 groundCheckPos = transform.position + moveDir * 1.2f + Vector3.up * 0.5f;
-                if (!Physics.Raycast(groundCheckPos, Vector3.down, 2.5f))
+                
+                // Raycast edge detection (visual/AI stop)
+                Vector3 groundCheckPos = transform.position + moveDir * 2.5f + Vector3.up * 0.5f;
+                if (!Physics.Raycast(groundCheckPos, Vector3.down, 3f))
                 {
                     moveDir = Vector3.zero; // Stop at edges
                 }
             }
 
-            // Aplicar velocidad horizontal
+            // Boundary constraints (hard cleanup)
+            float mapLimit = 14.5f; // Based on Ground scale 30 (range -15 to 15)
+            Vector3 pos = transform.position;
+            if (Mathf.Abs(pos.x) > mapLimit || Mathf.Abs(pos.z) > mapLimit)
+            {
+                pos.x = Mathf.Clamp(pos.x, -mapLimit, mapLimit);
+                pos.z = Mathf.Clamp(pos.z, -mapLimit, mapLimit);
+                transform.position = pos;
+                moveDir = Vector3.zero;
+            }
+
             _flatVelocity = Vector3.MoveTowards(_flatVelocity, moveDir * moveSpeed, acceleration * Time.fixedDeltaTime);
             ApplyMovement();
 
-            // Rotación hacia el objetivo
             Vector3 lookDir = Vector3.Scale(toTarget, new Vector3(1, 0, 1));
             if (lookDir.sqrMagnitude > 0.01f)
             {
@@ -97,17 +113,11 @@ namespace ArenaEnhanced
                 transform.rotation = Quaternion.Slerp(transform.rotation, targetRot, 8f * Time.fixedDeltaTime);
             }
 
-            // Ataque (solo si el objetivo no es el dueño)
-            if (_currentTarget != owner && dist <= attackRange && Time.time >= _nextAttack)
-            {
-                float damage = Random.Range(3f, 5.1f);
-                _currentTarget.TakeDamage(damage, _combatant);
-                _nextAttack = Time.time + attackCooldown;
+            UpdateAnimator(_flatVelocity.magnitude);
 
-                var anim = GetComponentInChildren<Animator>();
-                if (anim != null) anim.SetTrigger("Attack");
-                
-                Debug.Log($"[Robot] Atacando a {_currentTarget.name} con {damage:F1} de daño");
+            if (dist <= attackRange && Time.time >= _nextAttack)
+            {
+                AttackTarget();
             }
         }
 
@@ -119,7 +129,34 @@ namespace ArenaEnhanced
             _rb.linearVelocity = vel;
         }
 
-        private ArenaCombatant NearestEnemy()
+        private void UpdateAnimator(float speed)
+        {
+            if (_animator != null)
+            {
+                _animator.SetFloat(HashSpeed, speed);
+            }
+        }
+
+        private void AttackTarget()
+        {
+            float damage = Random.Range(minDamage, maxDamage);
+            _currentTarget.TakeDamage(damage, _combatant);
+            _nextAttack = Time.time + attackCooldown;
+
+            if (_animator != null)
+            {
+                _animator.SetFloat(HashAttackType, 0);
+                _animator.SetFloat(HashAttackTrigger, 1.0f);
+                Invoke(nameof(ResetMeleeTrigger), 0.1f);
+            }
+        }
+        
+        private void ResetMeleeTrigger()
+        {
+            if (_animator != null) _animator.SetFloat(HashAttackTrigger, 0.0f);
+        }
+
+        private ArenaCombatant NearestTarget()
         {
             ArenaCombatant nearest = null;
             float bestSq = float.MaxValue;
@@ -128,8 +165,8 @@ namespace ArenaEnhanced
             for (int i = 0; i < all.Count; i++)
             {
                 var c = all[i];
-                if (c == null || !c.IsAlive || c == _combatant || (owner != null && c == owner) || c.teamId == _combatant.teamId) 
-                    continue;
+                if (c == null || !c.IsAlive || c == _combatant) 
+                    continue; 
                 
                 float sq = (c.transform.position - transform.position).sqrMagnitude;
                 if (sq < bestSq && sq <= detectDistance * detectDistance)

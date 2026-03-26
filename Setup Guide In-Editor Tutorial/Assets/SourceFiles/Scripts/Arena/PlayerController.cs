@@ -22,11 +22,21 @@ namespace ArenaEnhanced
         [Header("Ground Check")]
         public LayerMask groundLayer = ~0;
         public float groundCheckDistance = 0.2f;
-        
+
+        [Header("Tab-Target & GCD")]
+        public float globalCooldown = 1.0f;
+        public float targetSearchDistance = 25f;
+
         private Rigidbody rb;
         private Animator animator;
+        private ArenaCombatant _combatant;
+        private Collider _col;
+        
         private bool isGrounded;
         private Vector3 moveInput;
+        private float _nextActionTime;
+        private ArenaCombatant _currentTarget;
+        public ArenaCombatant CurrentTarget => _currentTarget;
         
         // Animator parameter hashes for performance
         private readonly int _animIDSpeed = Animator.StringToHash("Speed");
@@ -35,10 +45,16 @@ namespace ArenaEnhanced
         private readonly int _animIDFreeFall = Animator.StringToHash("FreeFall");
         private readonly int _animIDMotionSpeed = Animator.StringToHash("MotionSpeed");
         
+        // Melee sequence tracking
+        private int _nextPunchSide = 0; // 0: Left, 1: Right
+        private int _nextKickSide = 2;  // 2: Left, 3: Right
+        
         private void Start()
         {
             rb = GetComponent<Rigidbody>();
             rb.freezeRotation = true;
+            _col = GetComponent<Collider>();
+            _combatant = GetComponent<ArenaCombatant>();
             
             // Find animator in children since the prefab puts it on a 'Robot' child
             animator = GetComponentInChildren<Animator>();
@@ -47,6 +63,8 @@ namespace ArenaEnhanced
         
         private void Update()
         {
+            if (_combatant != null && !_combatant.IsAlive) return;
+
             HandleInput();
             CheckGround();
             UpdateAnimator();
@@ -54,6 +72,8 @@ namespace ArenaEnhanced
         
         private void FixedUpdate()
         {
+            if (_combatant != null && !_combatant.IsAlive) return;
+
             Move();
             ApplyExtraGravity();
         }
@@ -84,8 +104,11 @@ namespace ArenaEnhanced
                 if (Keyboard.current.sKey.isPressed || Keyboard.current.downArrowKey.isPressed) vertical = -1f;
 
                 if (Keyboard.current.spaceKey.wasPressedThisFrame) Jump();
-                if (Keyboard.current.digit1Key.wasPressedThisFrame) CastFireball();
-                if (Keyboard.current.digit2Key.wasPressedThisFrame) SummonDog();
+                if (Keyboard.current.tabKey.wasPressedThisFrame) FindNextTarget();
+                
+                if (Keyboard.current.digit1Key.wasPressedThisFrame || Keyboard.current.numpad1Key.wasPressedThisFrame) TryCastAbility(1);
+                if (Keyboard.current.digit2Key.wasPressedThisFrame || Keyboard.current.numpad2Key.wasPressedThisFrame) TryCastAbility(2);
+                if (Keyboard.current.digit3Key.wasPressedThisFrame || Keyboard.current.numpad3Key.wasPressedThisFrame) TryCastAbility(3);
             }
 #else
             // Input System antiguo
@@ -93,40 +116,107 @@ namespace ArenaEnhanced
             vertical = Input.GetAxis("Vertical");
 
             if (Input.GetKeyDown(KeyCode.Space)) Jump();
-            if (Input.GetKeyDown(KeyCode.Alpha1)) CastFireball();
-            if (Input.GetKeyDown(KeyCode.Alpha2)) SummonDog();
-            if (Input.GetKeyDown(KeyCode.Alpha3)) PerformMelee();
+            if (Input.GetKeyDown(KeyCode.Tab)) FindNextTarget();
+            
+            if (Input.GetKeyDown(KeyCode.Alpha1) || Input.GetKeyDown(KeyCode.Keypad1)) TryCastAbility(1);
+            if (Input.GetKeyDown(KeyCode.Alpha2) || Input.GetKeyDown(KeyCode.Keypad2)) TryCastAbility(2);
+            if (Input.GetKeyDown(KeyCode.Alpha3) || Input.GetKeyDown(KeyCode.Keypad3)) TryCastAbility(3);
 #endif
             
             moveInput = new Vector3(horizontal, 0f, vertical).normalized;
         }
 
-        private void CastFireball()
+        private void TryCastAbility(int index)
         {
-            var combatant = GetComponent<ArenaEnhanced.ArenaCombatant>();
-            RuntimeSpawner.SpawnFireball(combatant, transform.position + transform.forward * 1.5f + Vector3.up, transform.forward, 35f);
-        }
+            if (Time.time < _nextActionTime) return;
+            if (_combatant != null && !_combatant.IsAlive) return;
 
-        private void SummonDog()
-        {
-            var combatant = GetComponent<ArenaEnhanced.ArenaCombatant>();
-            RuntimeSpawner.SpawnDog(combatant, transform.position + transform.forward * 2f);
-        }
-
-        private void PerformMelee()
-        {
-            var combatant = GetComponent<ArenaEnhanced.ArenaCombatant>();
-            if (combatant == null || !combatant.IsAlive) return;
-
-            // Randomized attack animations (0-3: LeftPunch, RightPunch, LeftKick, RightKick)
-            int attackType = Random.Range(0, 4);
-            if (animator != null)
+            bool success = false;
+            switch (index)
             {
-                animator.SetInteger("AttackType", attackType);
-                animator.SetTrigger("Attack");
+                case 1: success = CastFireball(); break;
+                case 2: success = SummonDog(); break;
+                case 3: success = PerformMelee(); break;
             }
 
-            RuntimeSpawner.SpawnMelee(combatant, transform.position, transform.forward);
+            if (success)
+            {
+                _nextActionTime = Time.time + globalCooldown;
+            }
+        }
+
+        private bool CastFireball()
+        {
+            Vector3 direction = transform.forward;
+            if (_currentTarget != null)
+            {
+                direction = (_currentTarget.transform.position + Vector3.up - (transform.position + Vector3.up)).normalized;
+                // Face target smoothly
+                transform.forward = new Vector3(direction.x, 0, direction.z).normalized;
+            }
+
+            RuntimeSpawner.SpawnFireball(_combatant, transform.position + transform.forward * 1.5f + Vector3.up, direction, 35f);
+            return true;
+        }
+
+        private bool SummonDog()
+        {
+            RuntimeSpawner.SpawnDog(_combatant, transform.position + transform.forward * 2f);
+            return true;
+        }
+
+        private bool PerformMelee()
+        {
+            // Randomly choose between Punch and Kick category, but alternate sides within each category
+            int attackType;
+            if (Random.value < 0.5f)
+            {
+                attackType = _nextPunchSide;
+                _nextPunchSide = 1 - _nextPunchSide; // Alternates 0 and 1
+            }
+            else
+            {
+                attackType = _nextKickSide;
+                _nextKickSide = 5 - _nextKickSide; // Alternates 2 and 3
+            }
+
+            // [Antigravity] Melee animations are currently disabled because they are placeholders with no clips.
+            // if (animator != null)
+            // {
+            //     animator.SetFloat("AttackType", (float)attackType);
+            //     animator.SetFloat("AttackTrigger", 1.0f);
+            //     Invoke(nameof(ResetMeleeTrigger), 0.1f);
+            // }
+
+            RuntimeSpawner.SpawnMelee(_combatant, transform.position, transform.forward);
+            return true;
+        }
+
+        private void FindNextTarget()
+        {
+            ArenaCombatant bestMatch = null;
+            float closestDist = targetSearchDistance;
+            var all = ArenaCombatant.All;
+
+            foreach (var c in all)
+            {
+                if (c == null || !c.IsAlive || c == _combatant || c.teamId == _combatant.teamId) continue;
+
+                float dist = Vector3.Distance(transform.position, c.transform.position);
+                if (dist < closestDist)
+                {
+                    // En un sistema real de Tab mejorado, usaríamos ángulos o prioridades de cámara, 
+                    // pero para el MVP el más cercano es lo esperado.
+                    closestDist = dist;
+                    bestMatch = c;
+                }
+            }
+
+            _currentTarget = bestMatch;
+            if (_currentTarget != null)
+                Debug.Log($"[PlayerController] Target seleccionado: {_currentTarget.displayName}");
+            else
+                Debug.Log("[PlayerController] No hay objetivos válidos en rango.");
         }
         
         /// <summary>
@@ -179,30 +269,30 @@ namespace ArenaEnhanced
         
         private void CheckGround()
         {
-            var col = GetComponent<Collider>();
-            if (col != null)
+            if (_col != null)
             {
-                float distance = col.bounds.extents.y + 0.1f;
-                // Raycast downwards from the collider's center to ensure robustness regardless of pivot
-                isGrounded = Physics.Raycast(col.bounds.center, Vector3.down, distance, groundLayer, QueryTriggerInteraction.Ignore);
+                float distance = _col.bounds.extents.y + 0.1f;
+                isGrounded = Physics.Raycast(_col.bounds.center, Vector3.down, distance, groundLayer, QueryTriggerInteraction.Ignore);
             }
             else
             {
-                // Fallback
                 isGrounded = Physics.Raycast(transform.position, Vector3.down, groundCheckDistance, groundLayer, QueryTriggerInteraction.Ignore);
             }
         }
         
+        private void ResetMeleeTrigger()
+        {
+            if (animator != null) animator.SetFloat("AttackTrigger", 0.0f);
+        }
+
         public void Jump()
         {
             if (isGrounded)
             {
                 float characterHeight = 2f;
-                var col = GetComponent<Collider>();
-                if (col != null) characterHeight = col.bounds.size.y;
+                if (_col != null) characterHeight = _col.bounds.size.y;
                 
                 float targetHeight = characterHeight * 3.5f;
-                // required velocity formula v = sqrt(2 * g * h)
                 float jumpVelocity = Mathf.Sqrt(2f * Mathf.Abs(Physics.gravity.y) * targetHeight);
                 
                 rb.linearVelocity = new Vector3(rb.linearVelocity.x, jumpVelocity, rb.linearVelocity.z);

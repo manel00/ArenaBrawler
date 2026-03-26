@@ -26,6 +26,9 @@ namespace WoW.Armas
         private float _bobTimer;
         private const float BOB_SPEED = 2f;
         private const float BOB_HEIGHT = 0.1f;
+
+        // Caché estático de materiales para evitar memory leaks
+        private static readonly System.Collections.Generic.Dictionary<Color, Material> _materialCache = new System.Collections.Generic.Dictionary<Color, Material>();
         
         // Events
         public System.Action<WeaponData, int> OnWeaponPickedUp;
@@ -60,11 +63,11 @@ namespace WoW.Armas
             weaponData = data;
             _currentDurability = durability;
             
-            // Aplicar color del arma
+            // Aplicar color del arma usando caché
             var meshRenderer = GetComponent<MeshRenderer>();
             if (meshRenderer != null && data != null)
             {
-                meshRenderer.material.color = data.weaponColor;
+                meshRenderer.material = GetCachedMaterial(data.weaponColor);
             }
             
             // Escalar según datos
@@ -137,16 +140,33 @@ namespace WoW.Armas
             rb.useGravity = false;
             rb.isKinematic = true;
             
-            // Material con el color del arma
+            // Material con el color del arma (reutilizando caché)
             var renderer = weaponObj.GetComponent<Renderer>();
-            renderer.material = new Material(Shader.Find("Standard"));
-            renderer.material.color = data.weaponColor;
+            if (renderer != null)
+            {
+                renderer.material = GetCachedMaterial(data.weaponColor);
+            }
             
             // Crear el componente WeaponPickup
             var pickup = weaponObj.AddComponent<WeaponPickup>();
             pickup.Setup(data, durability >= 0 ? durability : data.maxDurability);
             
             return pickup;
+        }
+
+        private static Material GetCachedMaterial(Color color)
+        {
+            if (_materialCache.TryGetValue(color, out Material mat) && mat != null)
+            {
+                return mat;
+            }
+
+            // Si no existe o se destruyó, crear uno nuevo
+            var newMat = new Material(Shader.Find("Standard"));
+            newMat.color = color;
+            newMat.name = $"WeaponMat_{ColorUtility.ToHtmlStringRGB(color)}";
+            _materialCache[color] = newMat;
+            return newMat;
         }
         
         private void OnTriggerEnter(Collider other)

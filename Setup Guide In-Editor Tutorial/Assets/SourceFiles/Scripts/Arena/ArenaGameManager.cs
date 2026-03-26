@@ -3,16 +3,29 @@ using System.Collections.Generic;
 using System.Linq;
 using UnityEngine.SceneManagement;
 
+#if ENABLE_INPUT_SYSTEM
+using UnityEngine.InputSystem;
+#endif
+
 namespace ArenaEnhanced
 {
     /// <summary>
-    /// Gestiona el juego de la arena, incluyendo victoria/derrota y reinicio.
+    /// Main game manager for Horde Survival mode.
+    /// Tracks player death (game over), wave victory, and restart.
+    /// Integrates with HordeWaveManager.
     /// </summary>
     public class ArenaGameManager : MonoBehaviour
     {
+        public static ArenaGameManager Instance { get; private set; }
+
         public ArenaCombatant player;
         public bool ended;
         public string endText = string.Empty;
+
+        private void Awake()
+        {
+            Instance = this;
+        }
 
         private void OnEnable()
         {
@@ -26,13 +39,17 @@ namespace ArenaEnhanced
 
         private void Update()
         {
-            // Esperar un par de segundos para que todo se inicialice antes de comprobar victoria
-            if (!ended && Time.timeSinceLevelLoad > 2f) 
-                CheckWin();
+            bool restartPressed = false;
+#if ENABLE_INPUT_SYSTEM
+            if (Keyboard.current != null && Keyboard.current.rKey.wasPressedThisFrame) restartPressed = true;
+#endif
+            if (Input.GetKeyDown(KeyCode.R)) restartPressed = true;
 
-            if (ended && Input.GetKeyDown(KeyCode.R))
+            if (ended && restartPressed)
             {
-                if (endText == "HAS SIDO DERROTADO" && player != null)
+                Debug.Log($"[ArenaGameManager] Restart requested. Result: {endText}");
+                // If the player died, we respawn them in the same session
+                if (endText.Contains("DERROTADO") && player != null)
                 {
                     ended = false;
                     endText = string.Empty;
@@ -40,6 +57,7 @@ namespace ArenaEnhanced
                 }
                 else
                 {
+                    // If they won or other cases, reload the scene
                     SceneManager.LoadScene(SceneManager.GetActiveScene().name);
                 }
             }
@@ -47,44 +65,43 @@ namespace ArenaEnhanced
 
         private void RespawnPlayerRandomly()
         {
-            Vector2 randomCircle = Random.insideUnitCircle * 30f;
-            Vector3 randomPos = new Vector3(randomCircle.x, 50f, randomCircle.y);
-            if (Physics.Raycast(randomPos, Vector3.down, out RaycastHit hit, 100f))
+            // The white square is Central (30x30m), so 15m radius
+            Vector2 rc = Random.insideUnitCircle * 14f; // 14f to stay slightly inside the 15f bounds
+            Vector3 pos = new Vector3(rc.x, 50f, rc.y);
+            
+            if (Physics.Raycast(pos, Vector3.down, out RaycastHit hit, 100f))
             {
-                player.Respawn(hit.point);
+                player.Respawn(hit.point + Vector3.up * 1.5f); // Spawn slightly above ground
             }
             else
             {
-                player.Respawn(new Vector3(randomCircle.x, 2f, randomCircle.y)); // Fallback
+                player.Respawn(new Vector3(rc.x, 1.5f, rc.y));
             }
+            
+            Debug.Log($"[ArenaGameManager] Player respawned at {player.transform.position} on the white square.");
         }
 
-        private void OnCombatantDied(ArenaCombatant victim, ArenaCombatant killer)
+        private void OnCombatantDied(ArenaCombatant killer, ArenaCombatant victim)
         {
+            Debug.Log($"[ArenaGameManager] {victim?.displayName} died. Killer: {killer?.displayName}");
             if (victim != null && victim == player)
             {
                 ended = true;
-                endText = "HAS SIDO DERROTADO";
+                endText = "HAS SIDO DERROTADO\n<size=24>Presiona [R] para reintentar</size>";
+                Debug.Log("[ArenaGameManager] Player died - GAME OVER");
             }
         }
 
-        private void CheckWin()
+        /// <summary>
+        /// Called by HordeWaveManager when all 3 waves are cleared.
+        /// </summary>
+        public void TriggerVictory()
         {
-            var alive = ArenaCombatant.All
-                .Where(c => c != null && c.IsAlive && c.countsForVictory)
-                .ToList();
-
-            if (alive.Count <= 1)
+            if (!ended)
             {
                 ended = true;
-                if (alive.Count == 1)
-                {
-                    endText = (alive[0] == player) ? "¡VICTORIA MAGISTRAL!" : $"GANADOR: {alive[0].displayName}";
-                }
-                else
-                {
-                    endText = "EMPATE";
-                }
+                endText = "¡BIODEATH CONQUISTADO!\n<size=24>Presiona [R] para reiniciar</size>";
+                Debug.Log("[ArenaGameManager] ALL WAVES CLEARED - VICTORY!");
             }
         }
     }

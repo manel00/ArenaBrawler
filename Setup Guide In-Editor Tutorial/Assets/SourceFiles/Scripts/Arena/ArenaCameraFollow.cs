@@ -1,40 +1,47 @@
 using UnityEngine;
 
-/// <summary>
-/// Cámara que sigue al jugador en la arena
-/// </summary>
-public class ArenaCameraFollow : MonoBehaviour
+namespace ArenaEnhanced
 {
-    [Header("Target")]
-    public Transform target;
-    
-    [Header("Configuración")]
-    public Vector3 offset = new Vector3(0f, 7f, -9f);
-    public float smoothSpeed = 20f;
-    public bool lookAtTarget = true;
-    
-    private void LateUpdate()
+    public class ArenaCameraFollow : MonoBehaviour
     {
-        if (target == null) return;
-        
-        // Mantener el offset relativo a la rotación del target pero ignorando su escala
-        Vector3 desiredPosition = target.position + (target.rotation * offset);
-        
-        // Seguir la posición suavemente
-        transform.position = Vector3.Lerp(transform.position, desiredPosition, smoothSpeed * Time.deltaTime);
-        
-        // Mirar siempre al frente del personaje
-        if (lookAtTarget)
+        public Transform target;
+        public Vector3 offset = new Vector3(0f, 7f, -9f);
+        public float smooth = 5f;
+        public float rotationSpeed = 5f;
+        public float minDistance = 5f;
+        public float maxDistance = 15f;
+        public float zoomSpeed = 2f;
+
+        private float _currentDistance;
+        private float _targetDistance;
+        private Vector3 _currentOffset;
+
+        private void Start()
         {
-            transform.LookAt(target.position + Vector3.up * 1.5f);
+            _currentDistance = offset.magnitude;
+            _targetDistance = _currentDistance;
+            _currentOffset = offset.normalized;
+
+            gameObject.tag = "MainCamera";
         }
-    }
-    
-    /// <summary>
-    /// Cambia el objetivo de la cámara
-    /// </summary>
-    public void SetTarget(Transform newTarget)
-    {
-        target = newTarget;
+
+        private void LateUpdate()
+        {
+            if (target == null) return;
+
+            // Rotación de la cámara (WoW-style follow)
+            Quaternion targetRotation = Quaternion.identity;
+            var combatant = target.GetComponent<ArenaCombatant>();
+            if (combatant == null || combatant.IsAlive)
+            {
+                targetRotation = target.rotation;
+            }
+
+            Vector3 desiredPosition = target.position + targetRotation * offset;
+            transform.position = Vector3.Lerp(transform.position, desiredPosition, smooth * Time.deltaTime);
+            
+            if (combatant == null || combatant.IsAlive)
+                transform.LookAt(target.position + Vector3.up * 1.5f);
+        }
     }
 }
