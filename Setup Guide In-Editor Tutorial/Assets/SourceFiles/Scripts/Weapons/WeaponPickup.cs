@@ -1,3 +1,4 @@
+using ArenaEnhanced;
 using UnityEngine;
 
 namespace WoW.Armas
@@ -21,11 +22,12 @@ namespace WoW.Armas
         public Vector3 spawnPosition;
         public Quaternion spawnRotation;
         
-        private int _currentDurability;
+        private int _currentAmmo;
         private Vector3 _originalPosition;
         private float _bobTimer;
         private const float BOB_SPEED = 2f;
         private const float BOB_HEIGHT = 0.1f;
+        private const float GROUND_PICKUP_SCALE_MULTIPLIER = 0.25f;
 
         // Caché estático de materiales para evitar memory leaks
         private static readonly System.Collections.Generic.Dictionary<Color, Material> _materialCache = new System.Collections.Generic.Dictionary<Color, Material>();
@@ -33,13 +35,13 @@ namespace WoW.Armas
         // Events
         public System.Action<WeaponData, int> OnWeaponPickedUp;
         
-        public int CurrentDurability => _currentDurability;
-        public int MaxDurability => weaponData != null ? weaponData.maxDurability : 5;
+        public int CurrentAmmo => _currentAmmo;
+        public int MaxAmmo => weaponData != null ? weaponData.DefaultAmmo : 0;
         
         private void Awake()
         {
             _originalPosition = transform.position;
-            _currentDurability = weaponData != null ? weaponData.maxDurability : 5;
+            _currentAmmo = weaponData != null ? weaponData.DefaultAmmo : 0;
             spawnPosition = _originalPosition;
             spawnRotation = transform.rotation;
         }
@@ -58,20 +60,15 @@ namespace WoW.Armas
         /// <summary>
         /// Configura el arma con datos específicos
         /// </summary>
-        public void Setup(WeaponData data, int durability)
+        public void Setup(WeaponData data, int ammo)
         {
             weaponData = data;
-            _currentDurability = durability;
+            _currentAmmo = data != null && data.UsesAmmo ? ammo : -1;
             
-            // Aplicar color del arma usando caché
-            var meshRenderer = GetComponent<MeshRenderer>();
-            if (meshRenderer != null && data != null)
-            {
-                meshRenderer.material = GetCachedMaterial(data.weaponColor);
-            }
+            ApplyAppearance();
             
-            // Escalar según datos
-            transform.localScale = data != null ? data.weaponScale : Vector3.one;
+            // Escalar según datos (25% del tamaño actual para armas en suelo)
+            transform.localScale = data != null ? data.weaponScale * GROUND_PICKUP_SCALE_MULTIPLIER : Vector3.one * GROUND_PICKUP_SCALE_MULTIPLIER;
             
             // Spawn VFX
             if (pickUpVFX != null)
@@ -85,7 +82,7 @@ namespace WoW.Armas
         /// </summary>
         public void PickUp()
         {
-            OnWeaponPickedUp?.Invoke(weaponData, _currentDurability);
+            OnWeaponPickedUp?.Invoke(weaponData, _currentAmmo);
             
             // Efecto de recogida
             if (pickUpVFX != null)
@@ -99,7 +96,7 @@ namespace WoW.Armas
         /// <summary>
         /// Crea un arma en el suelo en una posición específica
         /// </summary>
-        public static WeaponPickup CreatePickup(WeaponData data, Vector3 position, int durability = -1)
+        public static WeaponPickup CreatePickup(WeaponData data, Vector3 position, int ammo = -1)
         {
             GameObject weaponObj = null;
             
@@ -116,17 +113,20 @@ namespace WoW.Armas
             if (weaponObj == null)
             {
                 weaponObj = GameObject.CreatePrimitive(PrimitiveType.Cube);
-                weaponObj.transform.localScale = data.weaponScale * 0.3f;
+                weaponObj.transform.localScale = data.weaponScale;
             }
             
             weaponObj.name = $"WeaponPickup_{data.weaponName}";
             weaponObj.transform.position = position;
             
             // Configurar collider como trigger para detección
-            var existingCollider = weaponObj.GetComponent<Collider>();
-            if (existingCollider != null)
+            var existingColliders = weaponObj.GetComponentsInChildren<Collider>(true);
+            if (existingColliders != null && existingColliders.Length > 0)
             {
-                existingCollider.isTrigger = true;
+                foreach (var collider in existingColliders)
+                {
+                    collider.isTrigger = true;
+                }
             }
             else
             {
@@ -136,22 +136,41 @@ namespace WoW.Armas
             }
             
             // Añadir Rigidbody para física
-            var rb = weaponObj.AddComponent<Rigidbody>();
+            var rb = weaponObj.GetComponent<Rigidbody>();
+            if (rb == null) rb = weaponObj.AddComponent<Rigidbody>();
             rb.useGravity = false;
             rb.isKinematic = true;
             
-            // Material con el color del arma (reutilizando caché)
-            var renderer = weaponObj.GetComponent<Renderer>();
-            if (renderer != null)
-            {
-                renderer.material = GetCachedMaterial(data.weaponColor);
-            }
-            
             // Crear el componente WeaponPickup
             var pickup = weaponObj.AddComponent<WeaponPickup>();
-            pickup.Setup(data, durability >= 0 ? durability : data.maxDurability);
+            pickup.Setup(data, ammo >= 0 ? ammo : data.DefaultAmmo);
             
             return pickup;
+        }
+
+        private void ApplyAppearance()
+        {
+            if (weaponData == null) return;
+
+            var renderers = GetComponentsInChildren<Renderer>(true);
+            foreach (var renderer in renderers)
+            {
+                if (weaponData.weaponMaterial != null)
+                {
+                    renderer.material = weaponData.weaponMaterial;
+                }
+                else if (weaponData.weaponTexture != null)
+                {
+                    Material mat = new Material(Shader.Find("Universal Render Pipeline/Lit"));
+                    mat.color = weaponData.weaponColor;
+                    mat.mainTexture = weaponData.weaponTexture;
+                    renderer.material = mat;
+                }
+                else
+                {
+                    renderer.material = GetCachedMaterial(weaponData.weaponColor);
+                }
+            }
         }
 
         private static Material GetCachedMaterial(Color color)
@@ -162,7 +181,7 @@ namespace WoW.Armas
             }
 
             // Si no existe o se destruyó, crear uno nuevo
-            var newMat = new Material(Shader.Find("Standard"));
+            var newMat = new Material(Shader.Find("Universal Render Pipeline/Lit"));
             newMat.color = color;
             newMat.name = $"WeaponMat_{ColorUtility.ToHtmlStringRGB(color)}";
             _materialCache[color] = newMat;
@@ -178,7 +197,7 @@ namespace WoW.Armas
                 combatant = other.GetComponentInParent<ArenaEnhanced.ArenaCombatant>();
             }
             
-            if (combatant != null && combatant.isPlayer)
+            if (combatant != null)
             {
                 // Notificar al sistema de inventario
                 var weaponSystem = combatant.GetComponent<PlayerWeaponSystem>();

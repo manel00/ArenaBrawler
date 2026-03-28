@@ -43,25 +43,26 @@ namespace ArenaEnhanced
             _barRoot = rootGo.transform;
 
             // Background bar (slightly wider)
-            var bg = GameObject.CreatePrimitive(PrimitiveType.Quad);
-            bg.name = "HPBar_BG";
+            var bg = new GameObject("HPBar_BG");
             bg.transform.SetParent(_barRoot);
             bg.transform.localPosition = Vector3.zero;
             bg.transform.localScale = new Vector3(1.1f, 0.18f, 1f);
-            bg.GetComponent<Renderer>().material = _bgMat;
-            Destroy(bg.GetComponent<Collider>());
+            var bgMf = bg.AddComponent<MeshFilter>();
+            bgMf.mesh = Resources.GetBuiltinResource<Mesh>("Quad.fbx");
+            var bgMr = bg.AddComponent<MeshRenderer>();
+            bgMr.material = _bgMat;
 
             // Foreground fill
-            var fill = GameObject.CreatePrimitive(PrimitiveType.Quad);
-            fill.name = "HPBar_Fill";
+            var fill = new GameObject("HPBar_Fill");
             fill.transform.SetParent(_barRoot);
             // Slightly in front of background to avoid z-fighting
             fill.transform.localPosition = new Vector3(0f, 0f, -0.01f);
             fill.transform.localScale = new Vector3(1f, 0.14f, 1f);
-            _fillRenderer = fill.GetComponent<Renderer>();
+            var fillMf = fill.AddComponent<MeshFilter>();
+            fillMf.mesh = Resources.GetBuiltinResource<Mesh>("Quad.fbx");
+            _fillRenderer = fill.AddComponent<MeshRenderer>();
             _fillRenderer.material = new Material(_fillMat);
             _fillTransform = fill.transform;
-            Destroy(fill.GetComponent<Collider>());
 
             // Label (optional)
             if (!string.IsNullOrEmpty(label)) rootGo.name = $"WorldHPBar_{label}";

@@ -1,245 +1,438 @@
 using UnityEngine;
 using UnityEngine.UI;
+using TMPro;
+using System.Collections;
+using System.Text;
 
 namespace ArenaEnhanced
 {
+    /// <summary>
+    /// HUD principal de la arena - Construye y actualiza toda la UI de juego en runtime.
+    /// Auto-construye todos los elementos si no existen (self-healing).
+    /// </summary>
     public class ArenaHUD : MonoBehaviour
     {
+        // ── Runtime refs (built by SelfHeal) ─────────────────────────────────
+        private Image      _healthBar;
+        private Image      _staminaBar;
+        private TextMeshProUGUI _waveText;
+        private TextMeshProUGUI _pointsText;
+        private TextMeshProUGUI _waveAnnounceText;
+        private GameObject _gameOverPanel;
+        private TextMeshProUGUI _gameOverText;
+
+        // ── Serialized optional overrides ────────────────────────────────────
+        [Header("Points")]
+        [Header("Ability Bar")]
+        [SerializeField] private AbilitySlot[] abilitySlots = new AbilitySlot[7];
+        [Header("Dash cooldown overlay")]
+        [SerializeField] private Image dashCooldownOverlay;
+        [Header("Player dependency")]
+        [SerializeField] private PlayerController playerController;
+
+        private int   _currentPoints;
+        private int   _currentLevel;
+        private float _lastStamina = -1f;
+        private readonly StringBuilder _sb = new StringBuilder(32);
+
+        private static readonly int[] LevelThresholds = { 100, 200, 300, 400, 500 };
+
         public static ArenaHUD Instance { get; private set; }
 
-        private ArenaCombatant player;
-        private ArenaCombatant target; 
-
-        [Header("Prefab Links (Optional - Falls back to procedural if null)")]
-        [SerializeField] private Canvas canvas;
-        [SerializeField] private Text playerHpText;
-        [SerializeField] private Image playerHpFill;
-        [SerializeField] private GameObject targetFrame;
-        [SerializeField] private Text targetNameText;
-        [SerializeField] private Image targetHpFill;
-        [SerializeField] private GameObject gameOverPanel;
-        [SerializeField] private Text gameOverText;
-        [SerializeField] private Text waveCounterText;
-        [SerializeField] private GameObject waveAnnouncePanel;
-        [SerializeField] private Text waveAnnounceText;
-        [SerializeField] private GameObject matchSetupPanel;
-        [SerializeField] private Slider botSlider;
-        [SerializeField] private Text botSliderLabel;
-        [SerializeField] private Button startButton;
-
-        private float _visualHp;
-        private float _visualTargetHp;
-        private float _waveAnnounceHideTime;
-        private ArenaGameManager _gm;
-
-        private void Awake() { Instance = this; }
-
-        public void Initialize(ArenaCombatant mainPlayer)
+        // ─────────────────────────────────────────────────────────────────────
+        private void Awake()
         {
-            player = mainPlayer;
-            _visualHp = player != null ? player.hp : 0;
-            
-            if (canvas == null)
+            if (Instance != null && Instance != this) { Destroy(gameObject); return; }
+            Instance = this;
+
+            // Ensure this GameObject has a Canvas so Unity can render UGUI
+            EnsureCanvas();
+            BuildAllPanels();
+        }
+
+        private void EnsureCanvas()
+        {
+            var canvas = GetComponent<Canvas>();
+            if (canvas == null) canvas = gameObject.AddComponent<Canvas>();
+            canvas.renderMode = RenderMode.ScreenSpaceOverlay;
+            canvas.sortingOrder = 100;
+
+            var scaler = GetComponent<CanvasScaler>();
+            if (scaler == null) scaler = gameObject.AddComponent<CanvasScaler>();
+            scaler.uiScaleMode = CanvasScaler.ScaleMode.ScaleWithScreenSize;
+            scaler.referenceResolution = new Vector2(1920, 1080);
+            scaler.matchWidthOrHeight = 0.5f;
+
+            if (GetComponent<GraphicRaycaster>() == null)
+                gameObject.AddComponent<GraphicRaycaster>();
+        }
+
+        // ─────────────────────────────────────────────────────────────────────
+        // Panel builders
+        // ─────────────────────────────────────────────────────────────────────
+        private void BuildAllPanels()
+        {
+            BuildPlayerHUD();
+            BuildWaveHUD();
+            BuildAnnouncePanel();
+            BuildGameOverPanel();
+            BuildAbilityBar();
+        }
+
+        // ── Health + Stamina (top-left) ───────────────────────────────────────
+        private void BuildPlayerHUD()
+        {
+            var panel = MakePanel("PlayerHUD_Panel",
+                new Vector2(0, 1), new Vector2(0, 1), new Vector2(0, 1),
+                new Vector2(30, -30), new Vector2(380, 80));
+
+            _healthBar  = MakeBar(panel, "HealthBar",  new Vector2(0, -2),  new Vector2(360, 28), new Color(0.85f, 0.15f, 0.15f));
+            _staminaBar = MakeBar(panel, "StaminaBar", new Vector2(0, -40), new Vector2(360, 16), new Color(0.2f,  0.6f, 1f));
+
+            // Labels
+            var hl = MakeLabel(panel, "HP_Label", new Vector2(0, -2), new Vector2(60, 28), 18, "HP", Color.white, TextAlignmentOptions.Left);
+            var sl = MakeLabel(panel, "ST_Label", new Vector2(0, -40), new Vector2(80, 16), 14, "STA", Color.cyan,  TextAlignmentOptions.Left);
+        }
+
+        // ── Wave / Points (top-right) ─────────────────────────────────────────
+        private void BuildWaveHUD()
+        {
+            var panel = MakePanel("WaveHUD_Panel",
+                new Vector2(1, 1), new Vector2(1, 1), new Vector2(1, 1),
+                new Vector2(-30, -30), new Vector2(340, 80));
+
+            _waveText   = MakeLabel(panel, "WaveText",   new Vector2(0, -2),  new Vector2(340, 36), 32, "Ola 1", Color.white,  TextAlignmentOptions.Right);
+            _pointsText = MakeLabel(panel, "PointsText", new Vector2(0, -42), new Vector2(340, 28), 22, "0 pts | Lv.0", Color.yellow, TextAlignmentOptions.Right);
+        }
+
+        // ── Wave announcement (center) ────────────────────────────────────────
+        private void BuildAnnouncePanel()
+        {
+            var panel = MakePanel("WaveAnnounceHUD_Panel",
+                new Vector2(0.5f, 0.65f), new Vector2(0.5f, 0.65f), new Vector2(0.5f, 0.5f),
+                Vector2.zero, new Vector2(700, 120));
+
+            _waveAnnounceText = MakeLabel(panel, "AnnounceText", Vector2.zero, new Vector2(700, 120),
+                72, "", Color.red, TextAlignmentOptions.Center);
+            _waveAnnounceText.fontStyle = FontStyles.Bold;
+            panel.gameObject.SetActive(false); // hidden until needed
+        }
+
+        // ── Game Over overlay (center) ────────────────────────────────────────
+        private void BuildGameOverPanel()
+        {
+            _gameOverPanel = MakePanel("GameOverHUD_Panel",
+                new Vector2(0, 0), new Vector2(1, 1), new Vector2(0.5f, 0.5f),
+                Vector2.zero, Vector2.zero).gameObject;
+
+            // Dark semi-transparent background
+            var bg = _gameOverPanel.AddComponent<Image>();
+            bg.color = new Color(0, 0, 0, 0.72f);
+
+            _gameOverText = MakeLabel(_gameOverPanel.GetComponent<RectTransform>(),
+                "GameOverText", Vector2.zero, new Vector2(900, 300),
+                56, "", Color.white, TextAlignmentOptions.Center);
+            _gameOverText.fontStyle = FontStyles.Bold;
+
+            _gameOverPanel.SetActive(false);
+        }
+
+        // ── Ability bar (bottom-center) ───────────────────────────────────────
+        private void BuildAbilityBar()
+        {
+            var panel = MakePanel("SkillHUD_Panel",
+                new Vector2(0.5f, 0), new Vector2(0.5f, 0), new Vector2(0.5f, 0),
+                new Vector2(0, 20), new Vector2(600, 80));
+
+            string[] keys   = { "1","2","3","4","5","Q","E" };
+            string[] names  = { "Atk","Def","Dash","Skill","Ult","Swap","Block" };
+            for (int i = 0; i < 7; i++)
             {
-                Debug.Log("[ArenaHUD] No component links found. Generating Procedural UI...");
-                CreateCanvasUI();
+                float x = (i - 3) * 82f;
+                var slot = MakeSlot(panel, $"Slot_{i}", new Vector2(x, 0));
+                if (abilitySlots[i] == null) abilitySlots[i] = new AbilitySlot();
+                abilitySlots[i].Rebuild(slot.gameObject, keys[i], names[i]);
             }
         }
 
-        public void ShowMatchSetup(System.Action<int> onStart)
+        // ─────────────────────────────────────────────────────────────────────
+        // Unity lifecycle
+        // ─────────────────────────────────────────────────────────────────────
+        private void Start()
         {
-            if (matchSetupPanel != null)
+            if (playerController == null)
             {
-                matchSetupPanel.SetActive(true);
-                startButton.onClick.RemoveAllListeners();
-                startButton.onClick.AddListener(() => {
-                    int bots = (int)botSlider.value;
-                    PlayerPrefs.SetInt("BotCount", bots);
-                    PlayerPrefs.Save();
-                    matchSetupPanel.SetActive(false);
-                    onStart?.Invoke(bots);
-                });
+                var go = GameObject.FindGameObjectWithTag("Player");
+                if (go != null) playerController = go.GetComponent<PlayerController>();
             }
         }
 
         private void Update()
         {
-            if (canvas == null) return;
+            UpdateHealth();
+            UpdateStamina();
+            UpdateGameOver();
+        }
 
-            // --- PLAYER FRAME UPDATE ---
-            if (player != null && playerHpFill != null)
+        // ─────────────────────────────────────────────────────────────────────
+        // Update methods
+        // ─────────────────────────────────────────────────────────────────────
+        private void UpdateHealth()
+        {
+            if (_healthBar == null || playerController == null) return;
+            var combatant = playerController.GetComponent<ArenaCombatant>();
+            if (combatant != null && combatant.maxHp > 0)
+                _healthBar.fillAmount = combatant.hp / combatant.maxHp;
+        }
+
+        private void UpdateStamina()
+        {
+            if (_staminaBar == null || playerController == null) return;
+            float stamina = playerController.GetStaminaPercentage();
+            if (!Mathf.Approximately(stamina, _lastStamina))
             {
-                _visualHp = Mathf.Lerp(_visualHp, player.hp, Time.deltaTime * 5f);
-                playerHpFill.fillAmount = Mathf.Clamp01(_visualHp / player.maxHp);
-                if (playerHpText != null) 
-                    playerHpText.text = $"HP: {Mathf.Ceil(player.hp)} / {Mathf.Ceil(player.maxHp)}";
-                
-                float ratio = player.hp / player.maxHp;
-                playerHpFill.color = Color.Lerp(new Color(0.8f, 0.2f, 0.2f), new Color(0.2f, 0.9f, 0.3f), ratio);
-            }
-
-            // --- TARGET FRAME UPDATE ---
-            var pc = player != null ? player.GetComponent<PlayerController>() : null;
-            var currentTarget = pc != null ? pc.CurrentTarget : null;
-
-            if (currentTarget != null && currentTarget.IsAlive)
-            {
-                if (targetFrame != null)
-                {
-                    if (!targetFrame.activeSelf)
-                    {
-                        targetFrame.SetActive(true);
-                        _visualTargetHp = currentTarget.hp;
-                    }
-
-                    _visualTargetHp = Mathf.Lerp(_visualTargetHp, currentTarget.hp, Time.deltaTime * 5f);
-                    if (targetHpFill != null) targetHpFill.fillAmount = Mathf.Clamp01(_visualTargetHp / currentTarget.maxHp);
-                    if (targetNameText != null) targetNameText.text = currentTarget.displayName.ToUpper();
-
-                    float tRatio = currentTarget.hp / currentTarget.maxHp;
-                    if (targetHpFill != null) targetHpFill.color = Color.Lerp(new Color(0.8f, 0.2f, 0.2f), new Color(0.1f, 0.7f, 0.9f), tRatio);
-                }
-            }
-            else
-            {
-                if (targetFrame != null && targetFrame.activeSelf) targetFrame.SetActive(false);
-            }
-
-            // --- GAME OVER UPDATE ---
-            if (_gm == null) _gm = Object.FindAnyObjectByType<ArenaGameManager>();
-            
-            if (_gm != null && _gm.ended)
-            {
-                if (gameOverPanel != null && !gameOverPanel.activeSelf)
-                {
-                    gameOverPanel.SetActive(true);
-                    gameOverPanel.transform.SetAsLastSibling(); 
-                    if (gameOverText != null) gameOverText.text = _gm.endText + "\n<size=24>Press [R] to Restart</size>";
-                }
-            }
-            else
-            {
-                if (gameOverPanel != null && gameOverPanel.activeSelf) gameOverPanel.SetActive(false);
-            }
-
-            // --- WAVE ANNOUNCEMENT ---
-            if (waveAnnouncePanel != null)
-                waveAnnouncePanel.SetActive(Time.time < _waveAnnounceHideTime);
-
-            // --- MATCH SETUP SLIDER UPDATE ---
-            if (matchSetupPanel != null && matchSetupPanel.activeSelf && botSliderLabel != null && botSlider != null)
-            {
-                botSliderLabel.text = $"ALLIED BOTS: {(int)botSlider.value}";
-            }
-
-            // --- WAVE COUNTER ---
-            if (waveCounterText != null && HordeWaveManager.Instance != null)
-            {
-                int rem = HordeWaveManager.Instance.EnemiesRemaining();
-                waveCounterText.text = $"WAVE {HordeWaveManager.Instance.CurrentWave}/{HordeWaveManager.Instance.TotalWaves}  |  Enemies: {rem}";
+                _staminaBar.fillAmount = stamina;
+                _lastStamina = stamina;
             }
         }
 
-        public void ShowWaveAnnouncement(int wave, int total)
+        private void UpdateGameOver()
         {
-            if (waveAnnounceText != null) waveAnnounceText.text = $"WAVE {wave} / {total}";
-            _waveAnnounceHideTime = Time.time + 3f;
-            if (waveAnnouncePanel != null) waveAnnouncePanel.SetActive(true);
+            if (_gameOverPanel == null) return;
+            var gm = ArenaGameManager.Instance;
+            if (gm == null) return;
+
+            bool shouldShow = gm.ended;
+            if (_gameOverPanel.activeSelf != shouldShow)
+            {
+                _gameOverPanel.SetActive(shouldShow);
+                if (shouldShow && _gameOverText != null)
+                    _gameOverText.text = gm.endText;
+            }
         }
 
-        // --- PROCEDURAL UI GENERATION (CONSOLIDATED) ---
-        private void CreateCanvasUI()
+        // ─────────────────────────────────────────────────────────────────────
+        // Public API
+        // ─────────────────────────────────────────────────────────────────────
+        public void Initialize(ArenaCombatant player)
         {
-            var cGo = new GameObject("ArenaHUD_Procedural");
-            canvas = cGo.AddComponent<Canvas>();
-            canvas.renderMode = RenderMode.ScreenSpaceOverlay;
-            canvas.sortingOrder = 999;
-            cGo.AddComponent<CanvasScaler>().uiScaleMode = CanvasScaler.ScaleMode.ScaleWithScreenSize;
-            cGo.AddComponent<GraphicRaycaster>();
-
-            Font font = Resources.GetBuiltinResource<Font>("LegacyRuntime.ttf");
-            if (font == null) font = Resources.GetBuiltinResource<Font>("Arial.ttf");
-
-            // Build Player Frame (Resized to 25%: 300x75 -> 75x18.75, pos 30,-30 -> 7.5,-7.5)
-            var pRoot = CreateBox(canvas.transform, "PlayerHUD", new Vector2(7.5f, -7.5f), new Vector2(75f, 18.75f), new Vector2(0, 1), new Vector2(0, 1), new Vector2(0, 1));
-            pRoot.GetComponent<Image>().color = new Color(0, 0, 0, 0.6f);
-            var hpBg = CreateBox(pRoot.transform, "HP_BG", new Vector2(2.5f, -8.75f), new Vector2(70f, 7.5f), new Vector2(0, 1), new Vector2(0, 1), new Vector2(0, 1));
-            hpBg.GetComponent<Image>().color = new Color(0.2f, 0, 0, 0.8f);
-            playerHpFill = CreateBar(hpBg.transform, "HP_Fill", new Color(0.2f, 0.9f, 0.3f));
-            playerHpText = CreateText(hpBg.transform, "HP_Label", "", font, Color.white, 8, TextAnchor.MiddleCenter);
-            CreateText(pRoot.transform, "Name_Label", player.displayName.ToUpper(), font, Color.yellow, 10, TextAnchor.MiddleLeft).rectTransform.anchoredPosition = new Vector2(2.5f, -1.25f);
-
-            // Build Skills root (Resized to 25%: 300x80 -> 75x20, pos 0,40 -> 0,10)
-            var sRoot = CreateBox(canvas.transform, "SkillHUD", new Vector2(0, 10), new Vector2(75f, 20f), new Vector2(0.5f, 0), new Vector2(0.5f, 0), new Vector2(0.5f, 0));
-            sRoot.GetComponent<Image>().color = new Color(0, 0, 0, 0.4f);
-
-            // Build Target Frame (Resized to 25%: 400x60 -> 100x15, pos 0,-50 -> 0,-12.5)
-            targetFrame = CreateBox(canvas.transform, "TargetHUD", new Vector2(0, -12.5f), new Vector2(100f, 15f), new Vector2(0.5f, 1), new Vector2(0.5f, 1), new Vector2(0.5f, 1));
-            targetFrame.GetComponent<Image>().color = new Color(0, 0, 0, 0.7f);
-            var tHpBg = CreateBox(targetFrame.transform, "TargetHP_BG", new Vector2(0, -8.75f), new Vector2(95f, 5f), new Vector2(0.5f, 1), new Vector2(0.5f, 1), new Vector2(0.5f, 1));
-            tHpBg.GetComponent<Image>().color = new Color(0.2f, 0, 0, 0.8f);
-            targetHpFill = CreateBar(tHpBg.transform, "TargetHP_Fill", new Color(0.1f, 0.7f, 0.9f));
-            targetNameText = CreateText(targetFrame.transform, "TargetName", "TARGET", font, Color.white, 10, TextAnchor.MiddleCenter);
-            targetFrame.SetActive(false);
-
-            // Build Wave + Status HUD (Resized to 25%: 250x50 -> 62.5x12.5, pos -30,-30 -> -7.5,-7.5)
-            var wRoot = CreateBox(canvas.transform, "WaveHUD", new Vector2(-7.5f, -7.5f), new Vector2(62.5f, 12.5f), new Vector2(1, 1), new Vector2(1, 1), new Vector2(1, 1));
-            wRoot.GetComponent<Image>().color = new Color(0,0,0,0.6f);
-            waveCounterText = CreateText(wRoot.transform, "WaveCounter", "WAVE 1/3", font, new Color(1, 0.6f, 0), 10, TextAnchor.MiddleCenter);
-
-            // Announcement (Resized to 25%: 500x90 -> 125x22.5, pos 0,80 -> 0,20)
-            waveAnnouncePanel = CreateBox(canvas.transform, "WaveAnnounce", new Vector2(0, 20), new Vector2(125f, 22.5f), Vector2.one * 0.5f, Vector2.one * 0.5f, Vector2.one * 0.5f);
-            waveAnnouncePanel.GetComponent<Image>().color = new Color(0.8f, 0.1f, 0.05f, 0.85f);
-            waveAnnounceText = CreateText(waveAnnouncePanel.transform, "WaveAnnounceText", "WAVE START", font, Color.white, 14, TextAnchor.MiddleCenter);
-            waveAnnouncePanel.SetActive(false);
-
-            // Game Over
-            gameOverPanel = CreateBox(canvas.transform, "GameOverPanel", Vector2.zero, new Vector2(400, 150), Vector2.one * 0.5f, Vector2.one * 0.5f, Vector2.one * 0.5f);
-            gameOverPanel.GetComponent<Image>().color = new Color(0, 0, 0, 0.9f);
-            gameOverText = CreateText(gameOverPanel.transform, "GameOverText", "GAME OVER", font, Color.red, 36, TextAnchor.MiddleCenter);
-            gameOverPanel.SetActive(false);
-
-            // Match Setup (Condensed)
-            matchSetupPanel = CreateBox(canvas.transform, "MatchSetupPanel", Vector2.zero, new Vector2(450, 250), Vector2.one * 0.5f, Vector2.one * 0.5f, Vector2.one * 0.5f);
-            matchSetupPanel.GetComponent<Image>().color = new Color(0, 0, 0, 0.95f);
-            CreateText(matchSetupPanel.transform, "Title", "ARENA CONFIG", font, Color.yellow, 28, TextAnchor.MiddleCenter).rectTransform.anchoredPosition = new Vector2(0, 80);
-            botSliderLabel = CreateText(matchSetupPanel.transform, "Label", "ALLIED BOTS: 3", font, Color.white, 20, TextAnchor.MiddleCenter);
-            
-            var sGo = new GameObject("Slider"); sGo.transform.SetParent(matchSetupPanel.transform, false);
-            var rt = sGo.AddComponent<RectTransform>(); rt.anchoredPosition = new Vector2(0, -20); rt.sizeDelta = new Vector2(300, 20);
-            botSlider = sGo.AddComponent<Slider>(); botSlider.minValue = 0; botSlider.maxValue = 10; botSlider.wholeNumbers = true;
-            botSlider.value = PlayerPrefs.GetInt("BotCount", 3);
-            
-            var bGo = CreateBox(matchSetupPanel.transform, "StartBtn", new Vector2(0, -80), new Vector2(200, 50), Vector2.one * 0.5f, Vector2.one * 0.5f, Vector2.one * 0.5f);
-            bGo.GetComponent<Image>().color = new Color(0.2f, 0.6f, 0.2f);
-            startButton = bGo.AddComponent<Button>();
-            CreateText(bGo.transform, "BtnText", "FIGHT!", font, Color.white, 24, TextAnchor.MiddleCenter);
-            matchSetupPanel.SetActive(false);
+            if (player != null)
+                playerController = player.GetComponent<PlayerController>();
         }
 
-        private GameObject CreateBox(Transform parent, string n, Vector2 p, Vector2 s, Vector2 min, Vector2 max, Vector2 piv)
+        public void AddPoints(int points)
         {
-            var go = new GameObject(n); go.transform.SetParent(parent, false);
-            var rt = go.AddComponent<RectTransform>(); rt.anchorMin = min; rt.anchorMax = max; rt.pivot = piv;
-            rt.anchoredPosition = p; rt.sizeDelta = s; go.AddComponent<Image>();
-            return go;
+            _currentPoints += points;
+            CheckLevelUp();
+            RefreshPointsDisplay();
         }
 
-        private Text CreateText(Transform parent, string n, string txt, Font f, Color c, int s, TextAnchor a)
+        public void ResetPoints()
         {
-            var go = new GameObject(n); go.transform.SetParent(parent, false);
-            var rt = go.AddComponent<RectTransform>(); rt.anchorMin = Vector2.zero; rt.anchorMax = Vector2.one; rt.offsetMin = rt.offsetMax = Vector2.zero;
-            var t = go.AddComponent<Text>(); t.text = txt; t.font = f; t.color = c; t.fontSize = s; t.alignment = a;
-            t.horizontalOverflow = HorizontalWrapMode.Overflow; t.verticalOverflow = VerticalWrapMode.Overflow;
-            return t;
+            _currentPoints = 0;
+            _currentLevel  = 0;
+            RefreshPointsDisplay();
+            ApplyUpgrades();
         }
 
-        private Image CreateBar(Transform parent, string n, Color c)
+        public void ShowMatchSetup(System.Action<int> onBotCountSelected)
         {
-            var go = new GameObject(n); go.transform.SetParent(parent, false);
-            var rt = go.AddComponent<RectTransform>(); rt.anchorMin = Vector2.zero; rt.anchorMax = Vector2.one; rt.offsetMin = rt.offsetMax = Vector2.zero;
-            var img = go.AddComponent<Image>(); img.color = c; img.type = Image.Type.Filled; img.fillMethod = Image.FillMethod.Horizontal;
+            onBotCountSelected?.Invoke(3);
+        }
+
+        public void ShowWaveAnnouncement(int currentWave, int totalWaves)
+        {
+            if (_waveText != null)
+                _waveText.text = $"Ola {currentWave}/{totalWaves}";
+
+            if (_waveAnnounceText != null)
+                StartCoroutine(ShowAnnouncement($"OLA {currentWave}"));
+        }
+
+        public void UpdateWeaponName(string weaponName) { /* optional */ }
+        public void SetPlayerController(PlayerController c) => playerController = c;
+        public int GetCurrentPoints() => _currentPoints;
+        public int GetCurrentLevel()  => _currentLevel;
+
+        // ─────────────────────────────────────────────────────────────────────
+        // Internal helpers
+        // ─────────────────────────────────────────────────────────────────────
+        private IEnumerator ShowAnnouncement(string text)
+        {
+            if (_waveAnnounceText == null) yield break;
+            _waveAnnounceText.transform.parent.gameObject.SetActive(true);
+            _waveAnnounceText.text = text;
+            yield return new WaitForSeconds(2.5f);
+            _waveAnnounceText.transform.parent.gameObject.SetActive(false);
+        }
+
+        private void CheckLevelUp()
+        {
+            int newLevel = 0;
+            for (int i = 0; i < LevelThresholds.Length; i++)
+                if (_currentPoints >= LevelThresholds[i]) newLevel = i + 1;
+            if (newLevel > _currentLevel) { _currentLevel = newLevel; ApplyUpgrades(); }
+        }
+
+        private void ApplyUpgrades()
+        {
+            if (playerController == null) return;
+            float dmgMult   = 1f + _currentLevel * 0.05f;
+            float speedMult = 1f + _currentLevel * 0.03f;
+            var combatant = playerController.GetComponent<ArenaCombatant>();
+            if (combatant != null) combatant.damageMultiplier = dmgMult;
+            playerController.moveSpeed = 12.5f * speedMult;
+        }
+
+        private void RefreshPointsDisplay()
+        {
+            if (_pointsText == null) return;
+            _sb.Clear();
+            _sb.Append(_currentPoints).Append(" pts | Lv.").Append(_currentLevel);
+            _pointsText.text = _sb.ToString();
+        }
+
+        private void OnDestroy()
+        {
+            if (Instance == this) Instance = null;
+        }
+
+        // ─────────────────────────────────────────────────────────────────────
+        // UI factory helpers
+        // ─────────────────────────────────────────────────────────────────────
+        private RectTransform MakePanel(string name,
+            Vector2 anchorMin, Vector2 anchorMax, Vector2 pivot,
+            Vector2 anchoredPos, Vector2 sizeDelta)
+        {
+            var go = new GameObject(name);
+            go.transform.SetParent(transform, false);
+            var rt = go.AddComponent<RectTransform>();
+            rt.anchorMin       = anchorMin;
+            rt.anchorMax       = anchorMax;
+            rt.pivot           = pivot;
+            rt.anchoredPosition = anchoredPos;
+            rt.sizeDelta       = sizeDelta;
+            return rt;
+        }
+
+        private Image MakeBar(RectTransform parent, string name, Vector2 anchoredPos, Vector2 size, Color fill)
+        {
+            // Background
+            var bgGo = new GameObject(name + "_BG");
+            bgGo.transform.SetParent(parent, false);
+            var bgRT = bgGo.AddComponent<RectTransform>();
+            bgRT.anchorMin = new Vector2(0,1); bgRT.anchorMax = new Vector2(0,1); bgRT.pivot = new Vector2(0,1);
+            bgRT.anchoredPosition = anchoredPos; bgRT.sizeDelta = size;
+            bgGo.AddComponent<Image>().color = new Color(0,0,0,0.5f);
+
+            // Fill
+            var fillGo = new GameObject(name + "_Fill");
+            fillGo.transform.SetParent(bgGo.transform, false);
+            var fillRT = fillGo.AddComponent<RectTransform>();
+            fillRT.anchorMin = Vector2.zero; fillRT.anchorMax = Vector2.one;
+            fillRT.offsetMin = Vector2.zero; fillRT.offsetMax = Vector2.zero;
+            var img = fillGo.AddComponent<Image>();
+            img.color = fill;
+            img.type  = Image.Type.Filled;
+            img.fillMethod  = Image.FillMethod.Horizontal;
+            img.fillAmount  = 1f;
             return img;
         }
+
+        private TextMeshProUGUI MakeLabel(RectTransform parent, string name, Vector2 anchoredPos, Vector2 size,
+            float fontSize, string defaultText, Color color, TextAlignmentOptions align)
+        {
+            var go = new GameObject(name);
+            go.transform.SetParent(parent, false);
+            var rt = go.AddComponent<RectTransform>();
+            rt.anchorMin = new Vector2(0,1); rt.anchorMax = new Vector2(0,1); rt.pivot = new Vector2(0,1);
+            rt.anchoredPosition = anchoredPos; rt.sizeDelta = size;
+            var tmp = go.AddComponent<TextMeshProUGUI>();
+            tmp.fontSize  = fontSize;
+            tmp.color     = color;
+            tmp.alignment = align;
+            tmp.text      = defaultText;
+            return tmp;
+        }
+
+        private RectTransform MakeSlot(RectTransform parent, string name, Vector2 anchoredPos)
+        {
+            var go = new GameObject(name);
+            go.transform.SetParent(parent, false);
+            var rt = go.AddComponent<RectTransform>();
+            rt.anchorMin = new Vector2(0.5f,0); rt.anchorMax = new Vector2(0.5f,0); rt.pivot = new Vector2(0.5f,0);
+            rt.anchoredPosition = anchoredPos; rt.sizeDelta = new Vector2(74, 74);
+            var img = go.AddComponent<Image>();
+            img.color = new Color(0.08f, 0.08f, 0.08f, 0.88f);
+            return rt;
+        }
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    [System.Serializable]
+    public class AbilitySlot
+    {
+        private string _abilityName;
+        private string _keyBinding;
+        private Image              _cooldownOverlay;
+        private TextMeshProUGUI    _nameText;
+        private TextMeshProUGUI    _keyText;
+        private float _cdRemaining;
+        private float _cdMax;
+
+        public void Rebuild(GameObject root, string key, string abilityName)
+        {
+            _keyBinding   = key;
+            _abilityName  = abilityName;
+
+            var parentRT = root.GetComponent<RectTransform>();
+
+            // Key badge
+            var kGo = new GameObject("Key");
+            kGo.transform.SetParent(root.transform, false);
+            var kRT = kGo.AddComponent<RectTransform>();
+            kRT.anchorMin = new Vector2(0,1); kRT.anchorMax = new Vector2(0,1); kRT.pivot = new Vector2(0,1);
+            kRT.anchoredPosition = new Vector2(4,-4); kRT.sizeDelta = new Vector2(22,18);
+            _keyText = kGo.AddComponent<TextMeshProUGUI>();
+            _keyText.fontSize = 13; _keyText.color = Color.white; _keyText.text = key;
+            _keyText.alignment = TextAlignmentOptions.Center;
+
+            // Ability name
+            var nGo = new GameObject("Name");
+            nGo.transform.SetParent(root.transform, false);
+            var nRT = nGo.AddComponent<RectTransform>();
+            nRT.anchorMin = new Vector2(0,0); nRT.anchorMax = new Vector2(1,0); nRT.pivot = new Vector2(0.5f,0);
+            nRT.anchoredPosition = new Vector2(0,4); nRT.sizeDelta = new Vector2(0,16);
+            _nameText = nGo.AddComponent<TextMeshProUGUI>();
+            _nameText.fontSize = 11; _nameText.color = new Color(0.8f,0.8f,0.8f); _nameText.text = abilityName;
+            _nameText.alignment = TextAlignmentOptions.Center;
+
+            // Cooldown overlay
+            var cGo = new GameObject("CDOverlay");
+            cGo.transform.SetParent(root.transform, false);
+            var cRT = cGo.AddComponent<RectTransform>();
+            cRT.anchorMin = Vector2.zero; cRT.anchorMax = Vector2.one;
+            cRT.offsetMin = Vector2.zero; cRT.offsetMax = Vector2.zero;
+            _cooldownOverlay = cGo.AddComponent<Image>();
+            _cooldownOverlay.color = new Color(0,0,0,0.7f);
+            _cooldownOverlay.type  = Image.Type.Filled;
+            _cooldownOverlay.fillMethod = Image.FillMethod.Radial360;
+            _cooldownOverlay.fillOrigin = (int)Image.Origin360.Top;
+            _cooldownOverlay.gameObject.SetActive(false);
+        }
+
+        public void SetCooldown(float remaining, float max)
+        {
+            _cdRemaining = remaining; _cdMax = max;
+            if (_cooldownOverlay == null) return;
+            if (remaining > 0 && max > 0)
+            {
+                _cooldownOverlay.fillAmount = remaining / max;
+                _cooldownOverlay.gameObject.SetActive(true);
+            }
+            else _cooldownOverlay.gameObject.SetActive(false);
+        }
+
+        public void UpdateSlot() { /* called externally if needed */ }
     }
 }

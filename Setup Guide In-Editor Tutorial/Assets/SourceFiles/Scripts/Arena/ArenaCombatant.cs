@@ -1,42 +1,94 @@
 using System.Collections.Generic;
 using UnityEngine;
+using ArenaEnhanced.Interfaces;
 
 namespace ArenaEnhanced
 {
     /// <summary>
     /// Representa un combatiente en la arena (jugador o bot)
     /// </summary>
-    public class ArenaCombatant : MonoBehaviour
+    public class ArenaCombatant : MonoBehaviour, IDamageable
     {
         private static readonly List<ArenaCombatant> _allCombatants = new List<ArenaCombatant>();
         public static List<ArenaCombatant> All => _allCombatants;
         public static event System.Action<ArenaCombatant, ArenaCombatant> Died;
 
         [Header("Data & Identity")]
-        public CombatantData data;
-        public string displayName = "Fighter";
-        public int teamId = 0;
-        public bool isPlayer = false;
-        public bool HasBarrier = false;
-        public bool countsForVictory = true;
-        public int level = 1;
-
-        [Header("Runtime Stats")]
-        public float maxHp = 100f;
-        public float hp = 100f;
-        public float moveSpeed = 5f;
-        public float damage = 10f;
-        public float attackRange = 2f;
-        public float attackCooldown = 0.5f;
-        public float damageMultiplier = 1f;
+        [Tooltip("Datos del combatiente desde ScriptableObject")]
+        [SerializeField] private CombatantData data;
         
+        [Tooltip("Nombre para mostrar en UI")]
+        [SerializeField] public string displayName = "Fighter";
+        
+        [Tooltip("ID del equipo (0 = jugador, 1+ = enemigos)")]
+        [SerializeField] public int teamId = 0;
+        
+        [Tooltip("Si es controlado por el jugador")]
+        [SerializeField] public bool isPlayer = false;
+        
+        [Tooltip("Si tiene barrera que bloquea daño")]
+        [SerializeField] private bool hasBarrier = false;
+        
+        [Tooltip("Si cuenta para la condición de victoria")]
+        [SerializeField] public bool countsForVictory = true;
+        
+        [Header("Runtime Stats")]
+        [Tooltip("Salud máxima")]
+        [SerializeField] public float maxHp = 100f;
+        
+        [Tooltip("Salud actual")]
+        [SerializeField] public float hp = 100f;
+        
+        [Tooltip("Velocidad de movimiento")]
+        [SerializeField] public float moveSpeed = 5f;
+        
+        [Tooltip("Daño base")]
+        [SerializeField] private float damage = 10f;
+        
+        [Tooltip("Rango de ataque")]
+        [SerializeField] private float attackRange = 2f;
+        
+        [Tooltip("Cooldown entre ataques")]
+        [SerializeField] private float attackCooldown = 0.5f;
+        
+        [Tooltip("Multiplicador de daño")]
+        [SerializeField] public float damageMultiplier = 1f;
+
         [Header("Shield")]
-        public bool shieldActive;
-        public float shieldEndTime;
-        public float shieldAbsorption = 0.8f;
+        [Tooltip("Si el escudo está activo")]
+        [SerializeField] private bool shieldActive;
+        
+        [Tooltip("Tiempo cuando termina el escudo")]
+        [SerializeField] private float shieldEndTime;
+        
+        [Tooltip("Porcentaje de absorción del escudo (0-1)")]
+        [Range(0f, 1f)]
+        [SerializeField] private float shieldAbsorption = 0.8f;
 
         private float lastAttackTime;
         private Vector3 _spawnPosition;
+
+        // Public properties for read-only access
+        public string DisplayName => displayName;
+        public int TeamId => teamId;
+        public bool IsPlayer => isPlayer;
+        public bool HasBarrier => hasBarrier;
+        public float MoveSpeed => moveSpeed;
+        public float Damage => damage;
+        public float AttackRange => attackRange;
+        public float AttackCooldown => attackCooldown;
+
+        // IDamageable implementation
+        public bool IsAlive => hp > 0.01f;
+        public float CurrentHealth => hp;
+        public float MaxHealth => maxHp;
+        public float HpPercent => hp / maxHp;
+        
+        // Events
+        public event System.Action<float, GameObject> OnDamageReceived;
+        public event System.Action<GameObject> OnDeath;
+        public event System.Action<ArenaCombatant> OnDeathCombatant;
+        public event System.Action<float, float> OnHealthChanged;
 
         private void InitializeFromData()
         {
@@ -49,15 +101,6 @@ namespace ArenaEnhanced
             attackRange = data.attackRange;
             attackCooldown = data.attackCooldown;
         }
-
-        // Propiedades
-        public bool IsAlive => hp > 0.01f;
-        public bool Alive => IsAlive; // Alias para compatibilidad con ArenaEnhanced.cs
-        public float HpPercent => hp / maxHp;
-
-        // Eventos
-        public System.Action<ArenaCombatant> OnDeath;
-        public System.Action<float, float> OnHealthChanged;
 
         private void Start()
         {
@@ -95,25 +138,38 @@ namespace ArenaEnhanced
         }
 
         /// <summary>
-        /// Recibe daño
+        /// Recibe daño (implementación de IDamageable)
         /// </summary>
-        public void TakeDamage(float amount, ArenaCombatant source = null)
+        public void TakeDamage(float amount, GameObject source = null)
         {
-            if (!IsAlive || HasBarrier) return;
+            if (!IsAlive || hasBarrier) return;
 
             float finalDamage = amount;
             if (shieldActive) finalDamage *= (1f - shieldAbsorption);
 
             hp = Mathf.Max(0, hp - finalDamage);
             OnHealthChanged?.Invoke(hp, maxHp);
+            OnDamageReceived?.Invoke(finalDamage, source);
+
+            // Show Damage Popup
+            DamagePopup.Create(transform.position + Vector3.up * 1.5f, finalDamage);
 
             Debug.Log($"[ArenaCombatant] {displayName} recibió {finalDamage} de daño. HP: {hp}/{maxHp}");
 
             if (hp <= 0)
             {
+                ArenaCombatant sourceCombatant = source?.GetComponent<ArenaCombatant>();
                 Die();
-                Died?.Invoke(source, this);
+                Died?.Invoke(sourceCombatant, this);
             }
+        }
+
+        /// <summary>
+        /// Recibe daño con fuente ArenaCombatant (compatibilidad)
+        /// </summary>
+        public void TakeDamage(float amount, ArenaCombatant source = null)
+        {
+            TakeDamage(amount, source?.gameObject);
         }
 
         public void ActivateShield(float duration)
@@ -147,16 +203,18 @@ namespace ArenaEnhanced
             if (distance > attackRange) return false;
 
             lastAttackTime = Time.time;
-            target.TakeDamage(damage * damageMultiplier, this);
+            target.TakeDamage(damage * damageMultiplier, gameObject);
 
             return true;
         }
 
         private void Die()
         {
-            if (hp > 0) hp = 0; // Ensure it is exactly 0
+            if (hp > 0) hp = 0;
             Debug.Log($"[ArenaCombatant] {displayName} ha muerto.");
-            OnDeath?.Invoke(this);
+            
+            OnDeath?.Invoke(gameObject);
+            OnDeathCombatant?.Invoke(this);
 
             if (isPlayer)
             {
@@ -179,11 +237,23 @@ namespace ArenaEnhanced
         public void Respawn(Vector3 position)
         {
             hp = maxHp;
+
+            // Re-enable CharacterController before moving (it may have been disabled during fight)
+            var cc = GetComponent<CharacterController>();
+            if (cc != null) cc.enabled = false; // disable first to bypass physics overlap
+            
             transform.position = position;
             transform.rotation = Quaternion.identity;
+
+            if (cc != null) cc.enabled = true;
             
             if (isPlayer)
             {
+                // Re-enable PlayerController script if it was blocked
+                var pc = GetComponent<PlayerController>();
+                if (pc != null) pc.enabled = true;
+
+                // Reset rigidbody if present
                 var rb = GetComponent<Rigidbody>();
                 if (rb != null)
                 {
@@ -199,7 +269,51 @@ namespace ArenaEnhanced
             gameObject.SetActive(true);
             OnHealthChanged?.Invoke(hp, maxHp);
 
-            Debug.Log($"[ArenaCombatant] {displayName} respawneado.");
+            Debug.Log($"[ArenaCombatant] {displayName} respawneado en {position}.");
+        }
+
+        /// <summary>
+        /// Aplica una fuerza de retroceso al combatiente
+        /// </summary>
+        public void ApplyKnockback(Vector3 force)
+        {
+            var rb = GetComponent<Rigidbody>();
+            if (rb != null)
+            {
+                rb.AddForce(force, ForceMode.Impulse);
+                
+                var agent = GetComponent<UnityEngine.AI.NavMeshAgent>();
+                if (agent != null && agent.enabled)
+                {
+                    StartCoroutine(TemporaryDisableAgent(agent, 0.4f));
+                }
+            }
+        }
+
+        private System.Collections.IEnumerator TemporaryDisableAgent(UnityEngine.AI.NavMeshAgent agent, float duration)
+        {
+            agent.enabled = false;
+            yield return new WaitForSeconds(duration);
+            if (agent != null && IsAlive) agent.enabled = true;
+        }
+
+        // Context menu for debugging
+        [ContextMenu("Take 10 Damage")]
+        private void DebugTakeDamage()
+        {
+            TakeDamage(10f, gameObject);
+        }
+
+        [ContextMenu("Heal to Full")]
+        private void DebugHeal()
+        {
+            Heal(maxHp);
+        }
+
+        [ContextMenu("Print Stats")]
+        private void DebugPrintStats()
+        {
+            Debug.Log($"[ArenaCombatant] {displayName} - HP: {hp}/{maxHp}, Damage: {damage}, Speed: {moveSpeed}");
         }
     }
 }

@@ -3,6 +3,7 @@ using System.Linq;
 using UnityEngine;
 using UnityEngine.SceneManagement;
 using UnityEngine.UI;
+using WoW.Armas;
 
 #if UNITY_EDITOR
 using UnityEditor;
@@ -33,6 +34,9 @@ namespace ArenaEnhanced
         public int defaultBots = 3;
         public string defaultPlayerName = "Survivor";
 
+        private const int WeaponsPerAlliedCombatant = 10;
+        private static WeaponData[] _runtimeWeapons;
+
         private void Start()
         {
             Debug.Log("[ArenaBootstrap] Start: Initializing Horde Survival arena...");
@@ -53,49 +57,30 @@ namespace ArenaEnhanced
             }
         }
 
-        private void SpawnWeaponsOnFloor()
+        private void SpawnWeaponsOnFloor(IReadOnlyList<ArenaCombatant> alliedCombatants)
         {
 #if UNITY_EDITOR
+            if (alliedCombatants == null || alliedCombatants.Count == 0) return;
+
+            var existing = GameObject.Find("GroundWeapons");
+            if (existing != null) Destroy(existing);
+
             var weaponsParent = new GameObject("GroundWeapons").transform;
-            int numWeapons = 10;
-            for (int i = 1; i <= numWeapons; i++)
+            WeaponData[] availableWeapons = GetRuntimeWeapons();
+            int totalWeapons = alliedCombatants.Count * WeaponsPerAlliedCombatant;
+
+            for (int i = 0; i < totalWeapons; i++)
             {
-                // Create WeaponData scriptable object
-                var data = ScriptableObject.CreateInstance<WoW.Armas.WeaponData>();
-                data.weaponName = "Arma_" + i;
-                data.damage = Random.Range(10f, 30f);
-                data.weaponScale = new Vector3(0.5f, 0.5f, 0.5f);
-                data.weaponColor = Color.white;
-                
-                // Texture path
-                string texNum = i < 10 ? "0" + i : i.ToString();
-                string texPath = $"Assets/SourceFiles/Textures/Alt/PolygonPrideWeapons_Texture_Alt_{texNum}.png";
-                var texture = UnityEditor.AssetDatabase.LoadAssetAtPath<Texture2D>(texPath);
-
-                Vector3 randomPos = new Vector3(Random.Range(-5f, 5f), 1f, Random.Range(-5f, 5f));
-                
-                // Manually create the pickup model wrapper
-                var go = GameObject.CreatePrimitive(PrimitiveType.Cube);
-                go.name = data.weaponName;
-                go.transform.position = randomPos;
-                go.transform.localScale = new Vector3(0.2f, 1f, 0.2f);
-                go.transform.SetParent(weaponsParent);
-
-                var renderer = go.GetComponent<Renderer>();
-                var mat = new Material(Shader.Find("Universal Render Pipeline/Lit"));
-                if (texture != null) mat.mainTexture = texture;
-                renderer.material = mat;
-
-                var pickup = go.AddComponent<WoW.Armas.WeaponPickup>();
-                pickup.weaponData = data;
-
-                var boxCol = go.GetComponent<Collider>();
-                boxCol.isTrigger = true;
-
-                var rb = go.AddComponent<Rigidbody>();
-                rb.useGravity = false;
-                rb.isKinematic = true;
+                WeaponData selected = availableWeapons[i % availableWeapons.Length];
+                Vector3 spawnPos = GetWeaponSpawnPosition(i, totalWeapons);
+                var pickup = WeaponPickup.CreatePickup(selected, spawnPos, selected.DefaultAmmo);
+                if (pickup != null)
+                {
+                    pickup.transform.SetParent(weaponsParent);
+                }
             }
+
+            Debug.Log($"[ArenaBootstrap] Spawned {totalWeapons} weapons for {alliedCombatants.Count} allied combatants.");
 #endif
         }
 
@@ -105,11 +90,19 @@ namespace ArenaEnhanced
             string playerName = PlayerPrefs.GetString("PlayerName", defaultPlayerName);
             int botCount = overrideBotCount >= 0 ? overrideBotCount : PlayerPrefs.GetInt("BotCount", defaultBots);
             Debug.Log($"[ArenaBootstrap] BuildArenaMatch: Player={playerName}, AlliedBots={botCount}");
+            List<ArenaCombatant> alliedCombatants = new List<ArenaCombatant>();
 
             // Spawn Player (Team 1)
             var player = SpawnFighter(playerName, new Vector3(0f, 1.2f, -6f), new Color(0.2f, 0.8f, 1f), 1, true);
             if (player != null)
+            {
                 player.displayName = playerName;
+                alliedCombatants.Add(player);
+
+                // Attach Ice Katana — player presses K to equip, 5 to attack
+                if (player.GetComponent<KatanaWeapon>() == null)
+                    player.gameObject.AddComponent<KatanaWeapon>();
+            }
 
             // Spawn Allied Bots (also Team 1 - NO friendly fire)
             float radius = 8f;
@@ -118,7 +111,11 @@ namespace ArenaEnhanced
                 float angle = (Mathf.PI * 2f / Mathf.Max(1, botCount)) * i;
                 Vector3 pos = new Vector3(Mathf.Cos(angle), 1.2f, Mathf.Sin(angle)) * radius;
                 var bot = SpawnFighter($"Ally_{i + 1}", pos, new Color(0.4f, 1f, 0.4f), 1, false); // Same team as player!
-                if (bot != null) bot.displayName = $"Ally Bot {i + 1}";
+                if (bot != null)
+                {
+                    bot.displayName = $"Ally Bot {i + 1}";
+                    alliedCombatants.Add(bot);
+                }
             }
 
             if (player != null)
@@ -131,14 +128,28 @@ namespace ArenaEnhanced
                 return;
             }
 
+            SpawnWeaponsOnFloor(alliedCombatants);
+
             // Setup Game Manager
             var gmGo = new GameObject("ArenaGameManager");
             var gm = gmGo.AddComponent<ArenaGameManager>();
             gm.player = player;
 
             // Setup HUD
-            var hudGo = new GameObject("ArenaHUD");
-            var hud = hudGo.AddComponent<ArenaHUD>();
+            GameObject hudPrefab = Resources.Load<GameObject>("Prefabs/UI/ArenaHUD");
+            
+            GameObject hudGo;
+            if (hudPrefab != null)
+            {
+                hudGo = Instantiate(hudPrefab);
+                hudGo.name = "ArenaHUD";
+            }
+            else
+            {
+                hudGo = new GameObject("ArenaHUD");
+            }
+
+            var hud = hudGo.GetComponent<ArenaHUD>() ?? hudGo.AddComponent<ArenaHUD>();
             hud.Initialize(player);
 
             // === HORDE WAVE MANAGER ===
@@ -156,7 +167,9 @@ namespace ArenaEnhanced
             var envGroup = new GameObject("Environment");
 
             // === EXPANDED ARENA GROUND (4x bigger) ===
-            var terrainMat = AssetDatabase.LoadAssetAtPath<Material>("Assets/Synty/PolygonGeneric/Materials/Generic_Overview_Map_Ground.mat");
+            var terrainMat = AssetDatabase.LoadAssetAtPath<Material>("Assets/Materials/Material_Grass.mat");
+            var accentMat = AssetDatabase.LoadAssetAtPath<Material>("Assets/Materials/Material_SandWavey.mat");
+            var outerMat = AssetDatabase.LoadAssetAtPath<Material>("Assets/Materials/Material_GrassFlowers.mat");
             var ground = GameObject.CreatePrimitive(PrimitiveType.Plane);
             ground.name = "ArenaGround";
             ground.transform.SetParent(envGroup.transform);
@@ -174,7 +187,9 @@ namespace ArenaEnhanced
                     tile.transform.SetParent(envGroup.transform);
                     tile.transform.position = new Vector3(ix * 640f, 0f, iz * 640f);
                     tile.transform.localScale = new Vector3(64f, 1f, 64f);
-                    if (terrainMat != null) tile.GetComponent<Renderer>().material = terrainMat;
+                    Material tileMat = ((ix + iz) % 2 == 0) ? outerMat : accentMat;
+                    if (tileMat == null) tileMat = terrainMat;
+                    if (tileMat != null) tile.GetComponent<Renderer>().material = tileMat;
                     Object.DestroyImmediate(tile.GetComponent<Collider>());
                 }
             }
@@ -242,6 +257,174 @@ namespace ArenaEnhanced
             }
             return new Vector3(maxRadius, 0, maxRadius);
         }
+
+        private Vector3 GetWeaponSpawnPosition(int index, int totalWeapons)
+        {
+            float angle = (Mathf.PI * 2f / Mathf.Max(1, totalWeapons)) * index;
+            float radius = Mathf.Lerp(10f, 32f, Random.value);
+            Vector3 pos = new Vector3(Mathf.Cos(angle), 8f, Mathf.Sin(angle)) * radius;
+            pos += new Vector3(Random.Range(-2.5f, 2.5f), 0f, Random.Range(-2.5f, 2.5f));
+
+            if (Physics.Raycast(pos, Vector3.down, out RaycastHit hit, 40f, ~0, QueryTriggerInteraction.Ignore))
+            {
+                pos = hit.point + Vector3.up * 0.65f;
+            }
+            else
+            {
+                pos.y = 0.65f;
+            }
+
+            return pos;
+        }
+
+#if UNITY_EDITOR
+        private WeaponData[] GetRuntimeWeapons()
+        {
+            if (_runtimeWeapons != null && _runtimeWeapons.Length > 0) return _runtimeWeapons;
+
+            GameObject assaultPrefab = AssetDatabase.LoadAssetAtPath<GameObject>("Assets/Models/Weapons/AssaultRifle_01.obj");
+            GameObject shotgunPrefab = AssetDatabase.LoadAssetAtPath<GameObject>("Assets/Models/Weapons/Double Barrel Shotgun/ShortDoubleBarrel.fbx");
+            GameObject flamethrowerPrefab = AssetDatabase.LoadAssetAtPath<GameObject>("Assets/Models/Weapons/Pistola agua/model.obj");
+
+            Material rifleMat = AssetDatabase.LoadAssetAtPath<Material>("Assets/Materials/Material_Simple_BlueDark.mat");
+            Material shotgunMat = AssetDatabase.LoadAssetAtPath<Material>("Assets/Materials/Material_GoldGlow.mat");
+            Material flamethrowerMat = AssetDatabase.LoadAssetAtPath<Material>("Assets/Materials/Material_Simple_Orange.mat");
+            GameObject flameVFX = AssetDatabase.LoadAssetAtPath<GameObject>("Assets/Synty/PolygonGeneric/Prefabs/FX/FX_Fire_01.prefab");
+
+            _runtimeWeapons = new[]
+            {
+                CreateRuntimeWeapon(
+                    "Assault Rifle",
+                    WeaponType.Ranged,
+                    WeaponFireMode.Projectile,
+                    assaultPrefab,
+                    rifleMat,
+                    null,
+                    new Color(0.25f, 0.55f, 1f),
+                    new Vector3(0.35f, 0.35f, 0.35f),
+                    0f, // rotationY
+                    10f, // minDamage
+                    25f, // maxDamage
+                    26f, // range
+                    0.12f, // cooldown
+                    20, // maxAmmo
+                    false, // infinite
+                    1, // projectiles
+                    1.5f, // spreadAngle
+                    40f, // projectileSpeed
+                    0f, // splash radius
+                    0f,
+                    0f,
+                    0f,
+                    0f),
+                CreateRuntimeWeapon(
+                    "Shotgun",
+                    WeaponType.Ranged,
+                    WeaponFireMode.Projectile,
+                    shotgunPrefab,
+                    shotgunMat,
+                    null,
+                    new Color(1f, 0.82f, 0.35f),
+                    new Vector3(0.75f, 0.75f, 0.75f),
+                    0f, // rotationY
+                    10f, // minDamage
+                    25f, // maxDamage
+                    18f, // range
+                    0.9f, // cooldown
+                    20, // maxAmmo
+                    false, // infinite
+                    8, // projectiles
+                    14f, // spreadAngle
+                    35f, // projectileSpeed
+                    0f, // splash radius
+                    0f,
+                    0f,
+                    0f,
+                    0f),
+                CreateRuntimeWeapon(
+                    "Flamethrower",
+                    WeaponType.Flamethrower,
+                    WeaponFireMode.Continuous,
+                    flamethrowerPrefab,
+                    flamethrowerMat,
+                    null,
+                    new Color(1f, 0.35f, 0.1f),
+                    new Vector3(0.5f, 0.5f, 0.5f),
+                    0f, // rotationY (ajusta si mira a un lado)
+                    0f, // minDamage
+                    0f, // maxDamage
+                    20f, // range
+                    0.1f, // cooldown (tick rate)
+                    0,
+                    true,
+                    1,
+                    30f, // spreadAngle (ancho del cono)
+                    0f, // projectileSpeed
+                    0f,
+                    0f,
+                    0f,
+                    5f, // minDps
+                    25f, // maxDps
+                    flameVFX)
+            };
+
+            return _runtimeWeapons;
+        }
+
+        private WeaponData CreateRuntimeWeapon(
+            string weaponName,
+            WeaponType type,
+            WeaponFireMode fireMode,
+            GameObject prefab,
+            Material material,
+            Texture2D texture,
+            Color color,
+            Vector3 scale,
+            float rotationY,
+            float minDamage,
+            float maxDamage,
+            float range,
+            float cooldown,
+            int maxAmmo,
+            bool infiniteAmmo,
+            int projectilesPerShot,
+            float spreadAngle,
+            float projectileSpeed,
+            float splashRadius,
+            float splashMin,
+            float splashMax,
+            float minDps,
+            float maxDps,
+            GameObject vfx = null)
+        {
+            var data = ScriptableObject.CreateInstance<WeaponData>();
+            data.weaponName = weaponName;
+            data.type = type;
+            data.fireMode = fireMode;
+            data.prefab = prefab;
+            data.weaponMaterial = material;
+            data.weaponTexture = texture;
+            data.weaponColor = color;
+            data.weaponScale = scale;
+            data.rotationOffset = new Vector3(0, rotationY, 0);
+            data.minDamage = minDamage;
+            data.maxDamage = maxDamage;
+            data.attackRange = range;
+            data.attackCooldown = cooldown;
+            data.maxAmmo = maxAmmo;
+            data.infiniteAmmo = infiniteAmmo;
+            data.projectilesPerShot = projectilesPerShot;
+            data.spreadAngle = spreadAngle;
+            data.projectileSpeed = projectileSpeed;
+            data.splashRadius = splashRadius;
+            data.splashMinDamage = splashMin;
+            data.splashMaxDamage = splashMax;
+            data.minDamagePerSecond = minDps;
+            data.maxDamagePerSecond = maxDps;
+            data.attackVFX = vfx;
+            return data;
+        }
+#endif
 
         private static ArenaCombatant SpawnBoss(Vector3 position)
         {
@@ -338,25 +521,34 @@ namespace ArenaEnhanced
                     }
                 }
 
-                // Refined cleanup: remove StarterAssets/Camera components while preserving ALL GameObjects
+                // Refined cleanup: remove StarterAssets/Camera components in two passes to respect dependencies
                 var allComps = model.GetComponentsInChildren<Component>(true);
+                var toRemove = new System.Collections.Generic.List<Component>();
+
                 foreach (var c in allComps)
                 {
                     if (c == null || c is Transform) continue;
                     string typeName = c.GetType().Name;
                     
-                    bool shouldRemove = false;
                     if (typeName.Contains("Camera") || typeName.Contains("AudioListener") || 
                         typeName.Contains("Cinemachine") || typeName.Contains("ThirdPersonController") ||
                         typeName.Contains("StarterAssetsInputs") || typeName.Contains("PlayerInput") ||
                         typeName.Contains("RespawnPlayer") || typeName == "CharacterController" ||
                         typeName == "UniversalAdditionalCameraData")
                     {
-                        shouldRemove = true;
+                        toRemove.Add(c);
                     }
+                }
 
-                    if (shouldRemove)
-                    {
+                // Pass 1: Remove Scripts first (they might depend on engine components)
+                foreach (var c in toRemove) {
+                    if (c != null && c is MonoBehaviour) {
+                        try { Object.DestroyImmediate(c); } catch { }
+                    }
+                }
+                // Pass 2: Remove remaining engine components
+                foreach (var c in toRemove) {
+                    if (c != null) {
                         try { Object.DestroyImmediate(c); } catch { }
                     }
                 }
@@ -396,6 +588,7 @@ namespace ArenaEnhanced
             combatant.isPlayer = isPlayer;
             combatant.maxHp = 100f;
             combatant.hp = 100f;
+            go.AddComponent<PlayerWeaponSystem>();
 
             if (isPlayer) 
             {

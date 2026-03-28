@@ -10,7 +10,7 @@ namespace ArenaEnhanced
     public class BossController : MonoBehaviour
     {
         [Header("Stats")]
-        public float moveSpeed = 8f;
+        public float moveSpeed = 9.6f; // Aumentado 20% (de 8f a 9.6f)
         public float acceleration = 25f;
         public float detectDistance = 100f; 
         public float attackRange = 3f;

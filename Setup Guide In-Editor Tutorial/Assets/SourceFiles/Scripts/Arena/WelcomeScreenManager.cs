@@ -67,7 +67,12 @@ namespace ArenaEnhanced
             rt.anchoredPosition = Vector2.zero;
 
             var img = panel.GetComponent<Image>();
-            if (img != null) img.color = new Color(0, 0, 0, 0.85f);
+            if (img != null) img.color = new Color(0.05f, 0.05f, 0.1f, 0.92f);
+            
+            // Add outline border to panel
+            var outline = panel.GetComponent<Outline>() ?? panel.AddComponent<Outline>();
+            outline.effectColor = new Color(0.3f, 0.3f, 0.4f, 0.8f);
+            outline.effectDistance = new Vector2(2, -2);
 
             // Position primary elements
             FixChild(panel, "Text_Title", 210f, 380f, 100f);
@@ -103,29 +108,43 @@ namespace ArenaEnhanced
 
         private void StyleUIElements()
         {
-            // Input Field Decoration
+            // Input Field Decoration with border
             if (playerNameInput != null)
             {
                 var img = playerNameInput.GetComponent<Image>();
-                if (img != null) img.color = new Color(0.2f, 0.2f, 0.2f, 0.9f);
+                if (img != null) img.color = new Color(0.15f, 0.15f, 0.2f, 0.95f);
+                
+                var inpOutline = playerNameInput.gameObject.GetComponent<Outline>() ?? playerNameInput.gameObject.AddComponent<Outline>();
+                inpOutline.effectColor = new Color(0.4f, 0.4f, 0.5f, 0.7f);
+                inpOutline.effectDistance = new Vector2(1, -1);
 
                 // Rebuild InputField Hierarchy if broken
                 if (playerNameInput.transform.childCount < 2)
                     RebuildInputField(playerNameInput);
             }
 
-            // Dropdown
+            // Dropdown with border
             if (botCountDropdown != null)
             {
                 var img = botCountDropdown.GetComponent<Image>();
-                if (img != null) img.color = new Color(0.2f, 0.2f, 0.2f, 0.9f);
+                if (img != null) img.color = new Color(0.15f, 0.15f, 0.2f, 0.95f);
+                
+                var ddOutline = botCountDropdown.gameObject.GetComponent<Outline>() ?? botCountDropdown.gameObject.AddComponent<Outline>();
+                ddOutline.effectColor = new Color(0.4f, 0.4f, 0.5f, 0.7f);
+                ddOutline.effectDistance = new Vector2(1, -1);
 
                 if (botCountDropdown.transform.childCount < 2)
                     RebuildDropdown(botCountDropdown);
             }
 
-            // Buttons
-            StyleButton(playSoloButton, new Color(0.15f, 0.45f, 0.15f, 1f));
+            // Buttons - Play Solo with bright green and outline
+            StyleButton(playSoloButton, new Color(0.1f, 0.7f, 0.2f, 1f));
+            if (playSoloButton != null)
+            {
+                var outline = playSoloButton.gameObject.GetComponent<Outline>() ?? playSoloButton.gameObject.AddComponent<Outline>();
+                outline.effectColor = new Color(0, 0, 0, 0.6f);
+                outline.effectDistance = new Vector2(1, -1);
+            }
             StyleButton(lanButton, new Color(0.3f, 0.3f, 0.3f, 1f));
 
             // Labels
@@ -134,7 +153,15 @@ namespace ArenaEnhanced
             StyleText(lanButtonLabel, 16, Color.gray);
             
             var titleText = FindComponentByName<Text>("Text_Title");
-            if (titleText != null) StyleText(titleText, 32, new Color(1f, 0.2f, 0.2f, 1f), true);
+            if (titleText != null)
+            {
+                titleText.text = "⚔️ ARENA BRAWLER ⚔️";
+                StyleText(titleText, 42, new Color(1f, 0.85f, 0.2f, 1f), true);
+                // Add Outline for premium effect
+                var outline = titleText.gameObject.GetComponent<Outline>() ?? titleText.gameObject.AddComponent<Outline>();
+                outline.effectColor = new Color(0, 0, 0, 0.8f);
+                outline.effectDistance = new Vector2(2, -2);
+            }
         }
 
         private void RebuildInputField(InputField field)
@@ -268,7 +295,9 @@ namespace ArenaEnhanced
             ilRT.offsetMin = new Vector2(10, 0); ilRT.offsetMax = new Vector2(-10, 0);
 
             it.targetGraphic = ibImg;
-            it.graphic = ilGo.GetComponent<Image>(); // Placeholder toggle graphic
+            // Don't use toggle graphic - just highlight background on selection
+            it.graphic = null;
+            it.isOn = false;
 
             scrollRect.content = cRT;
             scrollRect.viewport = vRT;

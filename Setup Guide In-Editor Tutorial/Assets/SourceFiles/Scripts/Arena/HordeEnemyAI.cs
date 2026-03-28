@@ -22,7 +22,7 @@ namespace ArenaEnhanced
         public float attackRange = 1.8f;
         public float attackDamage = 12f;
         public float attackCooldown = 1.2f;
-        public float moveSpeed = 4f;
+        public float moveSpeed = 4.8f; // Aumentado 20% (de 4f a 4.8f)
         public float flyingHoverHeight = 2.5f;
         public float detectRadius = 60f;
 

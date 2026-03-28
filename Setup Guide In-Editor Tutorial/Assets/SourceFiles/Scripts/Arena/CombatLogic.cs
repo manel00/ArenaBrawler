@@ -1,4 +1,5 @@
 using UnityEngine;
+using WoW.Armas;
 
 namespace ArenaEnhanced
 {
@@ -8,8 +9,11 @@ namespace ArenaEnhanced
     public class FireballProjectile : MonoBehaviour
     {
         public ArenaCombatant owner;
-        public float minDamage = 5f;
-        public float maxDamage = 10f;
+        public float minDamage = 15f;
+        public float maxDamage = 25f;
+        public float splashRadius = 5f;
+        public float splashMinDamage = 5f;
+        public float splashMaxDamage = 10f;
         public float knockback = 8f;
         public float lifeTime = 5f;
 
@@ -34,12 +38,84 @@ namespace ArenaEnhanced
             {
                 float damage = Random.Range(minDamage, maxDamage) * owner.damageMultiplier;
                 target.TakeDamage(damage, owner);
+                ApplySplashDamage(target.transform.position, target);
                 VFXManager.SpawnImpactEffect(transform.position);
                 Destroy(gameObject);
             }
             else if (other.gameObject != (owner != null ? owner.gameObject : null))
             {
                 Destroy(gameObject);
+            }
+        }
+
+        private void ApplySplashDamage(Vector3 center, ArenaCombatant directTarget)
+        {
+            Collider[] hits = Physics.OverlapSphere(center, splashRadius, ~0, QueryTriggerInteraction.Ignore);
+            foreach (var hit in hits)
+            {
+                var combatant = hit.GetComponentInParent<ArenaCombatant>();
+                if (combatant == null || !combatant.IsAlive || combatant == owner || combatant == directTarget) continue;
+                if (owner != null && combatant.teamId == owner.teamId) continue;
+
+                float splashDamage = Random.Range(splashMinDamage, splashMaxDamage) * (owner != null ? owner.damageMultiplier : 1f);
+                combatant.TakeDamage(splashDamage, owner);
+            }
+        }
+    }
+
+    public class WeaponProjectile : MonoBehaviour
+    {
+        public ArenaCombatant owner;
+        public WeaponData weaponData;
+        public float lifeTime = 4f;
+
+        private void Start()
+        {
+            Destroy(gameObject, lifeTime);
+        }
+
+        private void OnTriggerEnter(Collider other)
+        {
+            var target = other.GetComponent<ArenaCombatant>();
+            if (target == null) target = other.GetComponentInParent<ArenaCombatant>();
+
+            if (target != null && owner != null && target != owner && target.teamId != owner.teamId && target.IsAlive)
+            {
+                float damage = weaponData != null ? weaponData.RollDamage() : 10f;
+                target.TakeDamage(damage * owner.damageMultiplier, owner);
+
+                // Knockback para la escopeta (2 metros aprox)
+                if (weaponData != null && weaponData.weaponName.ToLower().Contains("shotgun"))
+                {
+                    Vector3 knockDir = (target.transform.position - transform.position).normalized;
+                    knockDir.y = 0;
+                    target.ApplyKnockback(knockDir * 12f);
+                }
+
+                if (weaponData != null && weaponData.splashRadius > 0f)
+                {
+                    ApplySplashDamage(target.transform.position, target);
+                }
+
+                VFXManager.SpawnImpactEffect(transform.position);
+                Destroy(gameObject);
+            }
+            else if (other.gameObject != (owner != null ? owner.gameObject : null))
+            {
+                Destroy(gameObject);
+            }
+        }
+
+        private void ApplySplashDamage(Vector3 center, ArenaCombatant directTarget)
+        {
+            Collider[] hits = Physics.OverlapSphere(center, weaponData.splashRadius, ~0, QueryTriggerInteraction.Ignore);
+            foreach (var hit in hits)
+            {
+                var combatant = hit.GetComponentInParent<ArenaCombatant>();
+                if (combatant == null || !combatant.IsAlive || combatant == owner || combatant == directTarget) continue;
+                if (owner != null && combatant.teamId == owner.teamId) continue;
+
+                combatant.TakeDamage(weaponData.RollSplashDamage() * (owner != null ? owner.damageMultiplier : 1f), owner);
             }
         }
     }
@@ -216,6 +292,77 @@ namespace ArenaEnhanced
             }
 
             ArenaAudioManager.PlayFireball();
+        }
+
+        public static void SpawnWeaponProjectile(ArenaCombatant owner, Vector3 origin, Vector3 direction, WeaponData weaponData)
+        {
+            var go = GameObject.CreatePrimitive(PrimitiveType.Sphere);
+            go.name = $"Projectile_{(weaponData != null ? weaponData.weaponName : "Weapon")}";
+            go.transform.position = origin;
+            // Más pequeño que la bola de fuego (0.45f vs 0.15f)
+            go.transform.localScale = Vector3.one * 0.15f; 
+
+            var renderer = go.GetComponent<Renderer>();
+            if (renderer != null)
+            {
+                var mat = new Material(Shader.Find("Universal Render Pipeline/Lit"));
+                
+                // Color gris metálico para las balas
+                Color bulletColor = new Color(0.7f, 0.72f, 0.75f);
+                
+                if (weaponData != null && weaponData.weaponTexture != null)
+                {
+                    mat.mainTexture = weaponData.weaponTexture;
+                }
+                
+                mat.color = bulletColor;
+                mat.EnableKeyword("_EMISSION");
+                mat.SetColor("_EmissionColor", bulletColor * 1.8f);
+                
+                if (weaponData != null && weaponData.type == WeaponType.Flamethrower)
+                {
+                    mat.SetColor("_EmissionColor", new Color(1f, 0.45f, 0.1f) * 2.5f);
+                }
+                renderer.material = mat;
+            }
+
+            var rb = go.AddComponent<Rigidbody>();
+            rb.mass = 0.2f;
+            rb.useGravity = false;
+            rb.collisionDetectionMode = CollisionDetectionMode.ContinuousDynamic;
+            
+            // Garantizar que la velocidad sea estrictamente horizontal (paralela al plano XZ)
+            Vector3 finalDirection = new Vector3(direction.x, 0, direction.z).normalized;
+            rb.linearVelocity = finalDirection * (weaponData != null ? weaponData.projectileSpeed : 35f);
+
+            var col = go.GetComponent<SphereCollider>();
+            if (col != null) col.isTrigger = true;
+
+            var trail = go.AddComponent<TrailRenderer>();
+            trail.time = 0.25f; 
+            trail.startWidth = 0.12f; // Proporcional al nuevo tamaño de la bala
+            trail.endWidth = 0.02f;
+            trail.material = new Material(Shader.Find("Sprites/Default"));
+            
+            // Estela roja según petición del usuario
+            Color trailColor = new Color(1f, 0f, 0f, 0.7f); 
+            trail.startColor = trailColor;
+            trail.endColor = new Color(1f, 0f, 0f, 0f); // Desvanecimiento
+
+            var projectile = go.AddComponent<WeaponProjectile>();
+            projectile.owner = owner;
+            projectile.weaponData = weaponData;
+
+            if (owner != null)
+            {
+                var ownerColliders = owner.GetComponentsInChildren<Collider>();
+                var projCol = go.GetComponent<Collider>();
+                if (projCol != null)
+                {
+                    foreach (var c in ownerColliders)
+                        Physics.IgnoreCollision(c, projCol);
+                }
+            }
         }
 
         public static void SpawnMelee(ArenaCombatant owner, Vector3 position, Vector3 forward)

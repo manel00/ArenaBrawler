@@ -18,10 +18,14 @@
 ## ✨ Key Features (Current MVP)
 
 - **🖥️ Main Menu Hub:** Start your session by setting your Player Name and choosing how many Allied Bots you want to bring into the slaughter.
-- **🎮 Free-Action Combat:** Strike freely in front of you, hitting multiple targets at once. No friendly fire—your bots are safe from your wrath.
+- **🔫 Horde Weapon Drops:** Every match begins with **10 floor weapons per allied combatant**. Assault rifles, shotguns, and flamethrowers spawn across the arena for the whole squad.
+- **🎮 Free-Action Combat:** Fireball, melee, and weapon combat now coexist. Weapons are auto-picked by walking over them, can be dropped with `Q`, and ranged weapons vanish when their ammo (20 rounds) is exhausted.
+- **🔥 Enhanced Fireball:** Fireball direct hits deal **15-25** damage and explode in a **5 meter AoE** for **5-10** extra damage.
+- **♨️ Flamethrower Upgrade:** The old water gun is now a **20 meter flamethrower** with infinite fuel and **5-25 DPS**.
+- **🤖 Smart Allies:** Allied bots now pick up and prioritize equipped weapons to help you thin the horde.
 - **🌊 3-Wave Attrition:** Survive escalating numbers of enemies per wave (20, 40, to 60 base monsters).
-- **🦖 Environment-Shattering Bosses:** Three colossal bosses spawn per wave (at 30s, 60s, and 90s). They are so massive they obliterate arena obstacles in their path.
-- **🌐 Solo First, LAN Future:** Currently a finely-tuned Singleplayer experience, built with an architecture to support LAN Co-op in the future.
+- **🦖 Environment-Shattering Bosses:** Three colossal bosses (T-Rexes) spawn per wave. They are so massive they obliterate arena obstacles in their path.
+- **🌐 Solo First, LAN Future:** Currently a finely-tuned Singleplayer experience, built to support LAN Co-op.
 
 ---
 
@@ -32,8 +36,13 @@
 | **Move** | `W` `A` `S` `D` |
 | **Orbit Camera** | `Right Click` (Hold) |
 | **Jump** | `Space` |
-| **Action Combat (Strike)** | `1` / `3` |
-| **Dash / Evade** | `Left Shift` |
+| **Swap Target** | `Tab` |
+| **Fireball** | `1` or `Numpad 1` |
+| **Summon Dog** | `2` or `Numpad 2` |
+| **Melee Strike** | `3` or `Numpad 3` |
+| **Weapon Attack** | `4` or `Numpad 4` |
+| **Drop Weapon** | `Q` |
+| **Pick Up Weapon** | `E` |
 | **Reset Match** | `R` |
 
 ---
@@ -45,8 +54,15 @@
 
 ### Quick Start
 1. Open the project in Unity.
-2. Load `Assets/Scenes/WelcomeScreen.unity` (Coming Soon) or `GetStarted_Scene.unity`.
+2. Load `Assets/Scenes/GetStarted_Scene.unity`.
 3. Press **Play** and survive the horde.
+
+### 🔌 MCP Unity Connection
+To start the MCP Unity server, run the following command in your terminal:
+
+```powershell
+C:\Users\Manel\.local\bin\uv.exe tool run --from "mcpforunityserver==9.6.0" mcp-for-unity --transport http --http-url http://127.0.0.1:8080 --project-scoped-tools
+```
 
 ---
 
@@ -54,17 +70,22 @@
 
 We are currently executing the **Horde Survival Overhaul**.
 - [x] Establish Dark/Brutal Tone and Vision.
-- [ ] Implement Welcome Screen (Player Name, Solo/LAN, Bot count).
-- [ ] Overhaul combat to free-aim action mechanics.
-- [ ] Implement the 3-Wave spawner and 5x scale Bosses.
-- [ ] Expand the Arena size and add destructible physics to trees/rocks.
+- [x] Implement Welcome Screen (Player Name, Solo/LAN, Bot count).
+- [x] Overhaul combat to free-aim action mechanics.
+- [x] Implement the 3-Wave spawner and 5x scale Bosses.
+- [x] Expand the Arena size and add destructible physics to trees/rocks.
 - [ ] Implement LAN Multiplayer Support (Post-1.0).
+
+### Current Combat Subtasks
+- [x] Spawn 10 ground weapons per allied combatant at match start.
+- [x] Auto-pickup for player and allied bots.
+- [x] `Q` to drop equipped weapon.
+- [x] Assault rifle and shotgun ammo system (20 ammo, weapon disappears at 0).
+- [x] Flamethrower conversion with infinite fuel and 20m range.
+- [x] Fireball direct damage and area damage upgrade.
+- [x] Allied bots prioritize equipped weapons when available.
 
 ---
 
 > [!WARNING]
 > Keep moving. In Biodeath Arena, standing still means being surrounded. Use your allied bots to split the enemy aggression while you focus on the colossal T-Rexes.
-
-Error al encender MCP en Unity
-
-C:\Users\Manel\.local\bin\uv.exe tool run --from "mcpforunityserver==9.6.0" mcp-for-unity --transport http --http-url http://127.0.0.1:8080 --project-scoped-tools
