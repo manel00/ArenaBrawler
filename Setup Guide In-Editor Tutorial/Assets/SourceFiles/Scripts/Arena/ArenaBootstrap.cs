@@ -40,21 +40,43 @@ namespace ArenaEnhanced
         private void Start()
         {
             Debug.Log("[ArenaBootstrap] Start: Initializing Horde Survival arena...");
+
+            // Check if we came from welcome screen
+            string fromWelcome = PlayerPrefs.GetString("FromWelcomeScreen", "false");
+            string gameMode = PlayerPrefs.GetString("GameMode", "");
+
+            if (fromWelcome != "true" || string.IsNullOrEmpty(gameMode))
+            {
+                Debug.Log("[ArenaBootstrap] Not from welcome screen, showing welcome UI...");
+                ShowWelcomeScreen();
+                return;
+            }
+
+            // Clear flag so next time we show welcome screen
+            PlayerPrefs.SetString("FromWelcomeScreen", "false");
+            PlayerPrefs.Save();
+
             BuildEnvironment();
-            
-            // Wait for user to choose bots if in arena directly
-            var hud = FindAnyObjectByType<ArenaHUD>();
-            if (hud != null)
-            {
-                hud.Initialize(null); // Initial setup
-                hud.ShowMatchSetup((botCount) => {
-                    BuildArenaMatch(botCount);
-                });
-            }
-            else
-            {
-                BuildArenaMatch();
-            }
+            int botCount = PlayerPrefs.GetInt("BotCount", defaultBots);
+            BuildArenaMatch(botCount);
+        }
+
+        private void ShowWelcomeScreen()
+        {
+            // Create welcome screen UI directly in this scene
+            var welcomeGo = new GameObject("WelcomeScreen");
+            var welcome = welcomeGo.AddComponent<WelcomeScreenUI>();
+            welcome.OnStartGame = (botCount, playerName) => {
+                PlayerPrefs.SetString("PlayerName", playerName);
+                PlayerPrefs.SetInt("BotCount", botCount);
+                PlayerPrefs.SetString("GameMode", "Solo");
+                PlayerPrefs.SetString("FromWelcomeScreen", "true");
+                PlayerPrefs.Save();
+
+                // Reload scene to start game
+                UnityEngine.SceneManagement.SceneManager.LoadScene(
+                    UnityEngine.SceneManagement.SceneManager.GetActiveScene().name);
+            };
         }
 
         private void SpawnWeaponsOnFloor(IReadOnlyList<ArenaCombatant> alliedCombatants)
@@ -592,6 +614,7 @@ namespace ArenaEnhanced
 
             if (isPlayer) 
             {
+                go.tag = "Player";
                 var pc = go.AddComponent<PlayerController>();
                 pc.jumpForce = 25f; // High enough to jump from green area onto white platform
             }

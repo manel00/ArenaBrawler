@@ -36,7 +36,7 @@ namespace ArenaEnhanced
 
             if (target != null && owner != null && target != owner && target.teamId != owner.teamId && target.IsAlive)
             {
-                float damage = Random.Range(minDamage, maxDamage) * owner.damageMultiplier;
+                float damage = Random.Range(20f, 30.1f);
                 target.TakeDamage(damage, owner);
                 ApplySplashDamage(target.transform.position, target);
                 VFXManager.SpawnImpactEffect(transform.position);
@@ -389,51 +389,54 @@ namespace ArenaEnhanced
             go.transform.position = spawnPos;
 
 #if UNITY_EDITOR
-            string robotPath = "Assets/Models/Characters/Domestic robot/Domestic Robot.obj";
-            string texPath = "Assets/Models/Characters/Domestic robot/Domestic robot Texture.png";
+            string dogPath = "Assets/Models/Characters/police_dog_by_get3dmodels.glb";
             
-            GameObject robotPrefab = UnityEditor.AssetDatabase.LoadAssetAtPath<GameObject>(robotPath);
-            Texture2D robotTex = UnityEditor.AssetDatabase.LoadAssetAtPath<Texture2D>(texPath);
+            GameObject dogPrefab = UnityEditor.AssetDatabase.LoadAssetAtPath<GameObject>(dogPath);
 
-            if (robotPrefab != null)
+            if (dogPrefab != null)
             {
-                var model = Object.Instantiate(robotPrefab, go.transform);
+                // Usar el modelo 3D real del GLB
+                var model = Object.Instantiate(dogPrefab, go.transform);
                 model.transform.localPosition = Vector3.zero;
                 model.transform.localRotation = Quaternion.identity;
-                model.transform.localScale = Vector3.one;
+                
+                // ESCALA 20% del tamaño original
+                model.transform.localScale = Vector3.one * 0.5f;
                 
                 var renderers = model.GetComponentsInChildren<Renderer>();
-                float nativeHeight = 0f;
-                foreach (var r in renderers) {
-                    if (r.bounds.size.y > nativeHeight) nativeHeight = r.bounds.size.y;
-                }
-
-                if (nativeHeight > 0.001f) {
-                    float targetHeight = 0.225f;
-                    float scaleFactor = targetHeight / nativeHeight;
-                    model.transform.localScale = Vector3.one * scaleFactor;
-                    
-                    float lowestPointY = float.MaxValue;
-                    foreach(var r in renderers) {
-                        if (r.bounds.min.y < lowestPointY) lowestPointY = r.bounds.min.y;
+                
+                // Aplicar material con Rim Lighting para destacar volumen 3D
+                foreach(var r in renderers) {
+                    if (r.sharedMaterial != null) {
+                        var mat = new Material(Shader.Find("Universal Render Pipeline/Simple Lit"));
+                        mat.mainTexture = r.sharedMaterial.mainTexture;
+                        mat.color = r.sharedMaterial.color;
+                        
+                        // Rim lighting para bordes brillantes
+                        mat.SetFloat("_RimAmount", 0.35f);
+                        mat.SetColor("_RimColor", new Color(0.9f, 0.9f, 1f, 1f));
+                        
+                        // Ajustes de iluminación
+                        mat.SetFloat("_Smoothness", 0.4f);
+                        mat.SetFloat("_Metallic", 0.1f);
+                        
+                        r.material = mat;
                     }
-                    float offset = lowestPointY - model.transform.position.y;
-                    model.transform.localPosition = new Vector3(0, -offset, 0);
                 }
-                else {
-                    model.transform.localScale = Vector3.one * 0.05f; 
-                }
-
-                if (renderers.Length > 0 && robotTex != null)
-                {
-                    var mat = new Material(Shader.Find("Universal Render Pipeline/Lit"));
-                    mat.mainTexture = robotTex;
-                    foreach(var r in renderers) r.material = mat;
-                }
+                
+                // Luz de relleno para destacar volumen
+                var fillLight = go.AddComponent<Light>();
+                fillLight.type = LightType.Point;
+                fillLight.intensity = 0.6f;
+                fillLight.range = 5f;
+                fillLight.color = new Color(0.95f, 0.95f, 1f);
+                
+                Debug.Log("[Dog] Loaded real 3D model with 2x scale!");
             }
             else
 #endif
             {
+                // Fallback solo si no existe el modelo
                 var slaveMat = new Material(Shader.Find("Universal Render Pipeline/Lit"));
                 slaveMat.color = new Color(0.65f, 0.45f, 1f);
 
@@ -464,7 +467,6 @@ namespace ArenaEnhanced
 
             var dog = go.AddComponent<DogController>();
             dog.owner = owner;
-            dog.moveSpeed = 4.5f;
             dog.detectDistance = 20f;
             dog.attackRange = 0.8f;
 

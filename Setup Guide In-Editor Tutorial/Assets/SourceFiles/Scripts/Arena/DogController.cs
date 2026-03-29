@@ -100,7 +100,7 @@ namespace ArenaEnhanced
             // Ataque (solo si el objetivo no es el dueño)
             if (_currentTarget != owner && dist <= attackRange && Time.time >= _nextAttack)
             {
-                float damage = Random.Range(3f, 5.1f);
+                float damage = Random.Range(20f, 30.1f);
                 _currentTarget.TakeDamage(damage, _combatant);
                 _nextAttack = Time.time + attackCooldown;
 

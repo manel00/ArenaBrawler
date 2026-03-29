@@ -148,13 +148,14 @@ namespace ArenaEnhanced
             if (shieldActive) finalDamage *= (1f - shieldAbsorption);
 
             hp = Mathf.Max(0, hp - finalDamage);
+            
+            Debug.Log($"[ArenaCombatant] {displayName} recibió {finalDamage} daño. HP: {hp}/{maxHp}. Invocando OnHealthChanged...");
+            
             OnHealthChanged?.Invoke(hp, maxHp);
             OnDamageReceived?.Invoke(finalDamage, source);
 
             // Show Damage Popup
             DamagePopup.Create(transform.position + Vector3.up * 1.5f, finalDamage);
-
-            Debug.Log($"[ArenaCombatant] {displayName} recibió {finalDamage} de daño. HP: {hp}/{maxHp}");
 
             if (hp <= 0)
             {

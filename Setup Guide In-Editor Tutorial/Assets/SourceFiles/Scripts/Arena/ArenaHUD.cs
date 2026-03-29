@@ -32,7 +32,6 @@ namespace ArenaEnhanced
 
         private int   _currentPoints;
         private int   _currentLevel;
-        private float _lastStamina = -1f;
         private readonly StringBuilder _sb = new StringBuilder(32);
 
         private static readonly int[] LevelThresholds = { 100, 200, 300, 400, 500 };
@@ -87,11 +86,9 @@ namespace ArenaEnhanced
                 new Vector2(30, -30), new Vector2(380, 80));
 
             _healthBar  = MakeBar(panel, "HealthBar",  new Vector2(0, -2),  new Vector2(360, 28), new Color(0.85f, 0.15f, 0.15f));
-            _staminaBar = MakeBar(panel, "StaminaBar", new Vector2(0, -40), new Vector2(360, 16), new Color(0.2f,  0.6f, 1f));
 
             // Labels
             var hl = MakeLabel(panel, "HP_Label", new Vector2(0, -2), new Vector2(60, 28), 18, "HP", Color.white, TextAlignmentOptions.Left);
-            var sl = MakeLabel(panel, "ST_Label", new Vector2(0, -40), new Vector2(80, 16), 14, "STA", Color.cyan,  TextAlignmentOptions.Left);
         }
 
         // ── Wave / Points (top-right) ─────────────────────────────────────────
@@ -160,17 +157,73 @@ namespace ArenaEnhanced
         // ─────────────────────────────────────────────────────────────────────
         private void Start()
         {
+            // Suscribirse al evento de salud del jugador
+            SubscribeToHealthEvents();
+        }
+        
+        private void SubscribeToHealthEvents()
+        {
+            // Buscar jugador si no lo tenemos
             if (playerController == null)
             {
                 var go = GameObject.FindGameObjectWithTag("Player");
-                if (go != null) playerController = go.GetComponent<PlayerController>();
+                if (go != null) 
+                    playerController = go.GetComponent<PlayerController>();
+                Debug.Log($"[ArenaHUD] Buscando jugador por tag: {(go != null ? "ENCONTRADO" : "NO ENCONTRADO")}");
+            }
+            
+            // Suscribirse al evento de salud
+            if (playerController != null)
+            {
+                var combatant = playerController.GetComponent<ArenaCombatant>();
+                if (combatant != null)
+                {
+                    combatant.OnHealthChanged -= OnPlayerHealthChanged; // Evitar duplicados
+                    combatant.OnHealthChanged += OnPlayerHealthChanged;
+                    Debug.Log($"[ArenaHUD] ✅ Suscrito a eventos de salud de {combatant.displayName} (HP: {combatant.hp}/{combatant.maxHp})");
+                }
+                else
+                {
+                    Debug.LogError("[ArenaHUD] ❌ PlayerController no tiene ArenaCombatant!");
+                }
+            }
+            else
+            {
+                Debug.LogError("[ArenaHUD] ❌ No se pudo encontrar PlayerController!");
+            }
+        }
+
+        private void OnPlayerHealthChanged(float currentHp, float maxHp)
+        {
+            Debug.Log($"[ArenaHUD] OnPlayerHealthChanged llamado: {currentHp}/{maxHp}, _healthBar null? {_healthBar == null}");
+            
+            if (_healthBar != null && maxHp > 0)
+            {
+                float fillAmount = currentHp / maxHp;
+                _healthBar.fillAmount = fillAmount;
+                Debug.Log($"[ArenaHUD] ✅ Barra actualizada: fillAmount = {fillAmount:F2}");
+            }
+            else
+            {
+                Debug.LogError($"[ArenaHUD] ❌ No se pudo actualizar barra: _healthBar={_healthBar}, maxHp={maxHp}");
+            }
+        }
+
+        private void OnDestroy()
+        {
+            if (Instance == this) Instance = null;
+            // Desuscribirse del evento
+            if (playerController != null)
+            {
+                var combatant = playerController.GetComponent<ArenaCombatant>();
+                if (combatant != null)
+                    combatant.OnHealthChanged -= OnPlayerHealthChanged;
             }
         }
 
         private void Update()
         {
             UpdateHealth();
-            UpdateStamina();
             UpdateGameOver();
         }
 
@@ -187,13 +240,7 @@ namespace ArenaEnhanced
 
         private void UpdateStamina()
         {
-            if (_staminaBar == null || playerController == null) return;
-            float stamina = playerController.GetStaminaPercentage();
-            if (!Mathf.Approximately(stamina, _lastStamina))
-            {
-                _staminaBar.fillAmount = stamina;
-                _lastStamina = stamina;
-            }
+            // Stamina bar removed - not used
         }
 
         private void UpdateGameOver()
@@ -217,7 +264,10 @@ namespace ArenaEnhanced
         public void Initialize(ArenaCombatant player)
         {
             if (player != null)
+            {
                 playerController = player.GetComponent<PlayerController>();
+                SubscribeToHealthEvents();
+            }
         }
 
         public void AddPoints(int points)
@@ -250,7 +300,11 @@ namespace ArenaEnhanced
         }
 
         public void UpdateWeaponName(string weaponName) { /* optional */ }
-        public void SetPlayerController(PlayerController c) => playerController = c;
+        public void SetPlayerController(PlayerController c) 
+        { 
+            playerController = c;
+            SubscribeToHealthEvents();
+        }
         public int GetCurrentPoints() => _currentPoints;
         public int GetCurrentLevel()  => _currentLevel;
 
@@ -292,11 +346,6 @@ namespace ArenaEnhanced
             _pointsText.text = _sb.ToString();
         }
 
-        private void OnDestroy()
-        {
-            if (Instance == this) Instance = null;
-        }
-
         // ─────────────────────────────────────────────────────────────────────
         // UI factory helpers
         // ─────────────────────────────────────────────────────────────────────
@@ -332,11 +381,28 @@ namespace ArenaEnhanced
             fillRT.anchorMin = Vector2.zero; fillRT.anchorMax = Vector2.one;
             fillRT.offsetMin = Vector2.zero; fillRT.offsetMax = Vector2.zero;
             var img = fillGo.AddComponent<Image>();
+            img.sprite = GetWhiteSprite(); // IMPORTANTE: Necesita sprite para Fill
             img.color = fill;
             img.type  = Image.Type.Filled;
             img.fillMethod  = Image.FillMethod.Horizontal;
+            img.fillOrigin  = (int)Image.OriginHorizontal.Left;
             img.fillAmount  = 1f;
             return img;
+        }
+
+        private static Sprite _whiteSprite;
+        private Sprite GetWhiteSprite()
+        {
+            if (_whiteSprite == null)
+            {
+                var tex = new Texture2D(4, 4, TextureFormat.RGBA32, false);
+                var white = new Color[16];
+                for (int i = 0; i < 16; i++) white[i] = Color.white;
+                tex.SetPixels(white);
+                tex.Apply();
+                _whiteSprite = Sprite.Create(tex, new Rect(0, 0, 4, 4), new Vector2(0.5f, 0.5f));
+            }
+            return _whiteSprite;
         }
 
         private TextMeshProUGUI MakeLabel(RectTransform parent, string name, Vector2 anchoredPos, Vector2 size,

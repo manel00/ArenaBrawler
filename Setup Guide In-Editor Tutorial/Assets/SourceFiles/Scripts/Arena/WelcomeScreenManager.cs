@@ -408,6 +408,7 @@ namespace ArenaEnhanced
             PlayerPrefs.SetString("PlayerName", playerName);
             PlayerPrefs.SetInt("BotCount", _botCount);
             PlayerPrefs.SetString("GameMode", "Solo");
+            PlayerPrefs.SetString("FromWelcomeScreen", "true");  // Flag to indicate we came from welcome screen
             PlayerPrefs.Save();
 
             Debug.Log($"[WelcomeScreen] Starting Solo: Name={playerName}, Bots={_botCount}");

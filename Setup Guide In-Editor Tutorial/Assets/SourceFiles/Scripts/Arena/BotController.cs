@@ -63,6 +63,8 @@ namespace ArenaEnhanced
 
         private Rigidbody _rb;
         private ArenaCombatant _combatant;
+        private int _currentPoints;
+        private int _currentLevel;
         private Vector3 _flatVelocity;
         private float _nextFire;
         private float _strafeSeed;
@@ -327,7 +329,8 @@ namespace ArenaEnhanced
                 transform.rotation = Quaternion.Slerp(transform.rotation, rot, 10f * Time.fixedDeltaTime);
             }
 
-            if (_weaponSystem != null && _weaponSystem.HasWeapon)
+            bool canAttack = _weaponSystem != null && _weaponSystem.HasWeapon;
+            if (canAttack)
             {
                 _weaponSystem.AttackTarget(target);
                 return;
