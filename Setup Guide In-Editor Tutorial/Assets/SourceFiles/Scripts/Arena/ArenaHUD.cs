@@ -20,6 +20,7 @@ namespace ArenaEnhanced
         private TextMeshProUGUI _waveAnnounceText;
         private GameObject _gameOverPanel;
         private TextMeshProUGUI _gameOverText;
+        private TextMeshProUGUI _weaponNameText;
 
         // ── Serialized optional overrides ────────────────────────────────────
         [Header("Points")]
@@ -139,7 +140,12 @@ namespace ArenaEnhanced
         {
             var panel = MakePanel("SkillHUD_Panel",
                 new Vector2(0.5f, 0), new Vector2(0.5f, 0), new Vector2(0.5f, 0),
-                new Vector2(0, 20), new Vector2(600, 80));
+                new Vector2(0, 20), new Vector2(600, 100));
+
+            // Weapon name label above ability slots
+            _weaponNameText = MakeLabel(panel, "WeaponName", new Vector2(0, 80), new Vector2(600, 20),
+                14, "", new Color(1f, 0.82f, 0.35f), TextAlignmentOptions.Center);
+            _weaponNameText.fontStyle = FontStyles.Bold;
 
             string[] keys   = { "1","2","3","4","5","Q","E" };
             string[] names  = { "Atk","Def","Dash","Skill","Ult","Swap","Block" };
@@ -299,7 +305,13 @@ namespace ArenaEnhanced
                 StartCoroutine(ShowAnnouncement($"OLA {currentWave}"));
         }
 
-        public void UpdateWeaponName(string weaponName) { /* optional */ }
+        public void UpdateWeaponName(string weaponName) 
+        { 
+            if (_weaponNameText != null)
+            {
+                _weaponNameText.text = string.IsNullOrEmpty(weaponName) ? "" : $"[{weaponName}]";
+            }
+        }
         public void SetPlayerController(PlayerController c) 
         { 
             playerController = c;

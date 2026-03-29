@@ -275,17 +275,15 @@ namespace ArenaEnhanced
 #if ENABLE_INPUT_SYSTEM
             var kb = Keyboard.current;
             if (kb == null) return false;
-            bool kbHeld = kb.digit4Key.isPressed || kb.numpad4Key.isPressed;
-            bool mouseHeld = Mouse.current != null && Mouse.current.leftButton.isPressed;
-            return kbHeld || mouseHeld;
+            return kb.digit5Key.isPressed || kb.numpad5Key.isPressed;
 #else
-            return Input.GetKey(KeyCode.Alpha4) || Input.GetKey(KeyCode.Keypad4) || Input.GetMouseButton(0);
+            return Input.GetKey(KeyCode.Alpha5) || Input.GetKey(KeyCode.Keypad5);
 #endif
         }
 
         private void TryCastAbility(int index)
         {
-            if (index != 4 && Time.time < _nextActionTime) return;
+            if (index != 5 && Time.time < _nextActionTime) return;
             if (_combatant == null || !_combatant.IsAlive) return;
 
             bool success = false;

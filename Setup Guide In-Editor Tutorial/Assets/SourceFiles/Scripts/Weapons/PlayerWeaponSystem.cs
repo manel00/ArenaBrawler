@@ -106,18 +106,30 @@ namespace WoW.Armas
         /// </summary>
         public bool Attack()
         {
+            Debug.Log($"[PlayerWeaponSystem] Attack() llamado. HasWeapon: {HasWeapon}, currentWeapon: {(currentWeaponData != null ? currentWeaponData.weaponName : "null")}");
             return AttackTarget(null);
         }
 
         public bool AttackTarget(ArenaCombatant forcedTarget)
         {
-            if (!HasWeapon) return false;
-            if (Time.time - _lastAttackTime < currentWeaponData.attackCooldown) return false;
+            if (!HasWeapon) 
+            {
+                Debug.LogWarning("[PlayerWeaponSystem] AttackTarget falló: No tiene arma");
+                return false;
+            }
+            if (Time.time - _lastAttackTime < currentWeaponData.attackCooldown) 
+            {
+                Debug.Log($"[PlayerWeaponSystem] AttackTarget falló: Cooldown activo ({Time.time - _lastAttackTime:F2} < {currentWeaponData.attackCooldown:F2})");
+                return false;
+            }
             if (currentWeaponData.UsesAmmo && currentAmmo == 0) 
             {
+                Debug.LogWarning("[PlayerWeaponSystem] AttackTarget falló: Sin munición");
                 BreakWeapon();
                 return false;
             }
+            
+            Debug.Log($"[PlayerWeaponSystem] Disparando {currentWeaponData.weaponName}! Munición: {currentAmmo}, FireMode: {currentWeaponData.fireMode}");
             
             _lastAttackTime = Time.time;
             Vector3 origin = GetAttackOrigin();
@@ -134,6 +146,7 @@ namespace WoW.Armas
                     PerformContinuousAttack(origin, baseDirection);
                     break;
                 default:
+                    Debug.Log("[PlayerWeaponSystem] Ejecutando PerformProjectileShot");
                     PerformProjectileShot(origin, baseDirection);
                     break;
             }
@@ -158,9 +171,11 @@ namespace WoW.Armas
         private void PerformProjectileShot(Vector3 origin, Vector3 baseDirection)
         {
             int projectileCount = Mathf.Max(1, currentWeaponData.projectilesPerShot);
+            Debug.Log($"[PlayerWeaponSystem] PerformProjectileShot: {projectileCount} proyectiles, origin={origin}, dir={baseDirection}");
             for (int i = 0; i < projectileCount; i++)
             {
                 Vector3 dir = ApplySpread(baseDirection, currentWeaponData.spreadAngle, i, projectileCount);
+                Debug.Log($"[PlayerWeaponSystem] Spawning proyectil {i+1}/{projectileCount}, dir={dir}");
                 RuntimeSpawner.SpawnWeaponProjectile(_owner, origin, dir, currentWeaponData);
             }
         }
