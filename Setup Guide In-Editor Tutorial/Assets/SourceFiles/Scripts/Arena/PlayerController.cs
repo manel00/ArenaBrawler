@@ -275,9 +275,9 @@ namespace ArenaEnhanced
 #if ENABLE_INPUT_SYSTEM
             var kb = Keyboard.current;
             if (kb == null) return false;
-            return kb.digit5Key.isPressed || kb.numpad5Key.isPressed;
+            return kb.digit4Key.isPressed || kb.numpad4Key.isPressed;
 #else
-            return Input.GetKey(KeyCode.Alpha5) || Input.GetKey(KeyCode.Keypad5);
+            return Input.GetKey(KeyCode.Alpha4) || Input.GetKey(KeyCode.Keypad4);
 #endif
         }
 
@@ -291,7 +291,6 @@ namespace ArenaEnhanced
             {
                 case 1: success = CastFireball(); break;
                 case 2: success = SummonDog(); break;
-                case 3: success = PerformMelee(); break;
                 case 4: success = PerformWeaponAttack(); break;
             }
 

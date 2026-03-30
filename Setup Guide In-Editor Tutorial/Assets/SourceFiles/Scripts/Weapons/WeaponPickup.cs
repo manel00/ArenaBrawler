@@ -119,6 +119,12 @@ namespace WoW.Armas
             weaponObj.name = $"WeaponPickup_{data.weaponName}";
             weaponObj.transform.position = position;
             
+            // Aplicar material/textura del arma ANTES de crear el pickup
+            ApplyMaterialToWeapon(weaponObj, data);
+            
+            // Aplicar rotación del WeaponData para que apunte hacia adelante
+            weaponObj.transform.rotation = Quaternion.Euler(data.rotationOffset);
+            
             // Configurar collider como trigger para detección
             var existingColliders = weaponObj.GetComponentsInChildren<Collider>(true);
             if (existingColliders != null && existingColliders.Length > 0)
@@ -146,6 +152,37 @@ namespace WoW.Armas
             pickup.Setup(data, ammo >= 0 ? ammo : data.DefaultAmmo);
             
             return pickup;
+        }
+
+        private static void ApplyMaterialToWeapon(GameObject weaponObj, WeaponData data)
+        {
+            if (weaponObj == null || data == null) return;
+            
+            var renderers = weaponObj.GetComponentsInChildren<Renderer>(true);
+            foreach (var renderer in renderers)
+            {
+                if (data.weaponMaterial != null)
+                {
+                    renderer.material = data.weaponMaterial;
+                    Debug.Log($"[WeaponPickup] Applied material {data.weaponMaterial.name} to {data.weaponName}");
+                }
+                else if (data.weaponTexture != null)
+                {
+                    Material mat = new Material(Shader.Find("Universal Render Pipeline/Lit"));
+                    mat.color = data.weaponColor;
+                    mat.mainTexture = data.weaponTexture;
+                    renderer.material = mat;
+                    Debug.Log($"[WeaponPickup] Applied texture to {data.weaponName}");
+                }
+                else
+                {
+                    // Crear material con color específico
+                    Material mat = new Material(Shader.Find("Universal Render Pipeline/Lit"));
+                    mat.color = data.weaponColor;
+                    renderer.material = mat;
+                    Debug.Log($"[WeaponPickup] Applied color {data.weaponColor} to {data.weaponName}");
+                }
+            }
         }
 
         private void ApplyAppearance()

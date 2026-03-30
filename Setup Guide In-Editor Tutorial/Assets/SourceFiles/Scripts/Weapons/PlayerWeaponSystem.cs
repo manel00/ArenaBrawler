@@ -214,8 +214,9 @@ namespace WoW.Armas
                 if (_flameEffectInstance == null)
                 {
                     _flameEffectInstance = Instantiate(currentWeaponData.attackVFX, weaponHoldPoint);
-                    _flameEffectInstance.transform.localPosition = new Vector3(0, 0, 0.5f); // Delante del arma
-                    _flameEffectInstance.transform.localRotation = Quaternion.identity;
+                    _flameEffectInstance.transform.localPosition = new Vector3(0, 0, 0.8f); // Punta del arma
+                    _flameEffectInstance.transform.localRotation = Quaternion.Euler(0, 0, 0);
+                    _flameEffectInstance.transform.localScale = Vector3.one * 1.5f; // Más grande
                 }
                 
                 if (!_flameEffectInstance.activeSelf)
@@ -329,14 +330,14 @@ namespace WoW.Armas
         {
             if (!HasWeapon) return;
             
-            // Calcular posición de drop (delante del jugador)
-            Vector3 dropPosition = transform.position + transform.forward * 1.5f;
+            // Calcular posición de drop (a la izquierda del jugador, 1 metro)
+            Vector3 dropPosition = transform.position - transform.right * 2f;
             dropPosition.y = 0.5f; // Altura del suelo
             
             // Crear pickup en el suelo
             WeaponPickup.CreatePickup(currentWeaponData, dropPosition, currentAmmo);
             
-            Debug.Log($"[PlayerWeaponSystem] Arma {currentWeaponData.weaponName} soltada en el suelo");
+            Debug.Log($"[PlayerWeaponSystem] Arma {currentWeaponData.weaponName} soltada a la izquierda");
             
             // Limpiar estado
             ClearCurrentWeapon();
@@ -431,7 +432,7 @@ namespace WoW.Armas
             currentWeaponData = null;
             currentAmmo = 0;
 
-            if (ArenaHUD.Instance != null) ArenaHUD.Instance.UpdateWeaponName("NO WEAPON");
+            if (ArenaHUD.Instance != null) ArenaHUD.Instance.UpdateWeaponName("");
         }
         
         /// <summary>
@@ -519,34 +520,24 @@ namespace WoW.Armas
 
         private void NormalizeHeldWeaponTransform(GameObject model)
         {
-            if (model == null) return;
-
-            model.transform.localScale = Vector3.one;
-
-            var renderers = model.GetComponentsInChildren<Renderer>(true);
-            if (renderers == null || renderers.Length == 0)
+            if (model == null || currentWeaponData == null) return;
+            
+            // Tamaño INDEPENDIENTE en mano (no relacionado con tamaño en suelo)
+            // Cada arma tiene su propio tamaño fijo para la mano
+            float handScale = 0.5f; // Tamaño base
+            
+            if (currentWeaponData.weaponName != null)
             {
-                model.transform.localScale = Vector3.one * 0.3f;
-                return;
+                string name = currentWeaponData.weaponName.ToLower();
+                if (name.Contains("shotgun"))
+                    handScale = 0.6f;
+                else if (name.Contains("assault") || name.Contains("rifle"))
+                    handScale = 0.55f;
+                else if (name.Contains("flame"))
+                    handScale = 0.5f;
             }
-
-            Bounds bounds = renderers[0].bounds;
-            for (int i = 1; i < renderers.Length; i++)
-            {
-                bounds.Encapsulate(renderers[i].bounds);
-            }
-
-            float maxDimension = Mathf.Max(bounds.size.x, Mathf.Max(bounds.size.y, bounds.size.z));
-            if (maxDimension < 0.0001f)
-            {
-                model.transform.localScale = Vector3.one * 0.3f;
-                return;
-            }
-
-            float typeMultiplier = GetHeldScaleMultiplier();
-            float normalizedScale = (HeldWeaponTargetMaxSize / maxDimension) * typeMultiplier;
-            normalizedScale = Mathf.Clamp(normalizedScale, 0.03f, 0.35f);
-            model.transform.localScale = Vector3.one * normalizedScale;
+            
+            model.transform.localScale = Vector3.one * handScale;
         }
 
         private float GetHeldScaleMultiplier()
@@ -576,6 +567,10 @@ namespace WoW.Armas
             if (weaponName.Contains("shotgun"))
             {
                 localPos = new Vector3(0.14f, -0.06f, 0.24f);
+            }
+            else if (weaponName.Contains("assault"))
+            {
+                localPos = new Vector3(0.12f, -0.08f, 0.22f);
             }
             else if (weaponName.Contains("flame"))
             {

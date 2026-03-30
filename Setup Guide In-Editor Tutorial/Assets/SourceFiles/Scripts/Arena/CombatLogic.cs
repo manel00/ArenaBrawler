@@ -299,16 +299,16 @@ namespace ArenaEnhanced
             var go = GameObject.CreatePrimitive(PrimitiveType.Sphere);
             go.name = $"Projectile_{(weaponData != null ? weaponData.weaponName : "Weapon")}";
             go.transform.position = origin;
-            // Más pequeño que la bola de fuego (0.45f vs 0.15f)
-            go.transform.localScale = Vector3.one * 0.15f; 
+            // AUMENTADO: Más grande para ser visible
+            go.transform.localScale = Vector3.one * 0.25f; 
 
             var renderer = go.GetComponent<Renderer>();
             if (renderer != null)
             {
                 var mat = new Material(Shader.Find("Universal Render Pipeline/Lit"));
                 
-                // Color gris metálico para las balas
-                Color bulletColor = new Color(0.7f, 0.72f, 0.75f);
+                // Color ROJO brillante para la bala
+                Color bulletColor = new Color(1f, 0.2f, 0.2f);
                 
                 if (weaponData != null && weaponData.weaponTexture != null)
                 {
@@ -317,7 +317,7 @@ namespace ArenaEnhanced
                 
                 mat.color = bulletColor;
                 mat.EnableKeyword("_EMISSION");
-                mat.SetColor("_EmissionColor", bulletColor * 1.8f);
+                mat.SetColor("_EmissionColor", new Color(1f, 0.1f, 0.1f) * 3f); // Muy brillante
                 
                 if (weaponData != null && weaponData.type == WeaponType.Flamethrower)
                 {
@@ -339,19 +339,21 @@ namespace ArenaEnhanced
             if (col != null) col.isTrigger = true;
 
             var trail = go.AddComponent<TrailRenderer>();
-            trail.time = 0.25f; 
-            trail.startWidth = 0.12f; // Proporcional al nuevo tamaño de la bala
-            trail.endWidth = 0.02f;
+            trail.time = 0.4f; // AUMENTADO: Más largo
+            trail.startWidth = 0.25f; // AUMENTADO: Más grueso
+            trail.endWidth = 0.05f;
             trail.material = new Material(Shader.Find("Sprites/Default"));
             
-            // Estela roja según petición del usuario
-            Color trailColor = new Color(1f, 0f, 0f, 0.7f); 
+            // Estela ROJA muy visible
+            Color trailColor = new Color(1f, 0.1f, 0.1f, 1f); 
             trail.startColor = trailColor;
-            trail.endColor = new Color(1f, 0f, 0f, 0f); // Desvanecimiento
+            trail.endColor = new Color(1f, 0f, 0f, 0f);
 
             var projectile = go.AddComponent<WeaponProjectile>();
             projectile.owner = owner;
             projectile.weaponData = weaponData;
+
+            Debug.Log($"[CombatLogic] Proyectil creado en {origin}, dir={finalDirection}, speed={rb.linearVelocity.magnitude}");
 
             if (owner != null)
             {

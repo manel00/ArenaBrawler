@@ -93,6 +93,7 @@ namespace ArenaEnhanced
 
             for (int i = 0; i < totalWeapons; i++)
             {
+                // Round-robin para distribución igual (1 rifle, 1 shotgun, 1 flamethrower, etc.)
                 WeaponData selected = availableWeapons[i % availableWeapons.Length];
                 Vector3 spawnPos = GetWeaponSpawnPosition(i, totalWeapons);
                 var pickup = WeaponPickup.CreatePickup(selected, spawnPos, selected.DefaultAmmo);
@@ -323,14 +324,14 @@ namespace ArenaEnhanced
                     rifleMat,
                     null,
                     new Color(0.25f, 0.55f, 1f),
-                    new Vector3(0.35f, 0.35f, 0.35f),
-                    0f, // rotationY
+                    new Vector3(1.0f, 1.0f, 1.0f), // Tamaño normal en suelo
+                    180f, // rotationY - apunta hacia adelante
                     10f, // minDamage
                     25f, // maxDamage
                     26f, // range
-                    0.12f, // cooldown
+                    0.01f, // cooldown - casi instantáneo
                     20, // maxAmmo
-                    false, // infinite
+                    true, // infinite ammo!
                     1, // projectiles
                     1.5f, // spreadAngle
                     40f, // projectileSpeed
@@ -347,7 +348,7 @@ namespace ArenaEnhanced
                     shotgunMat,
                     null,
                     new Color(1f, 0.82f, 0.35f),
-                    new Vector3(0.75f, 0.75f, 0.75f),
+                    new Vector3(1.0f, 1.0f, 1.0f), // Tamaño normal en suelo
                     0f, // rotationY
                     10f, // minDamage
                     25f, // maxDamage
@@ -371,16 +372,16 @@ namespace ArenaEnhanced
                     flamethrowerMat,
                     null,
                     new Color(1f, 0.35f, 0.1f),
-                    new Vector3(0.5f, 0.5f, 0.5f),
-                    0f, // rotationY (ajusta si mira a un lado)
+                    new Vector3(1.0f, 1.0f, 1.0f), // Tamaño normal en suelo
+                    -90f, // rotationY
                     0f, // minDamage
                     0f, // maxDamage
                     20f, // range
-                    0.1f, // cooldown (tick rate)
+                    0.1f, // cooldown
                     0,
                     true,
                     1,
-                    30f, // spreadAngle (ancho del cono)
+                    30f, // spreadAngle
                     0f, // projectileSpeed
                     0f,
                     0f,
@@ -446,7 +447,6 @@ namespace ArenaEnhanced
             data.attackVFX = vfx;
             return data;
         }
-#endif
 
         private static ArenaCombatant SpawnBoss(Vector3 position)
         {
@@ -527,7 +527,10 @@ namespace ArenaEnhanced
                     {
                         string typeName = c.GetType().Name;
                         if (typeName.Contains("Camera") || typeName.Contains("Listener") || 
-                            typeName.Contains("Input") || typeName.Contains("Cinemachine") || typeName.Contains("Audio"))
+                            typeName.Contains("Cinemachine") || typeName.Contains("ThirdPersonController") ||
+                            typeName.Contains("StarterAssetsInputs") || typeName.Contains("PlayerInput") ||
+                            typeName.Contains("RespawnPlayer") || typeName == "CharacterController" ||
+                            typeName == "UniversalAdditionalCameraData")
                         {
                             c.enabled = false;
                         }
