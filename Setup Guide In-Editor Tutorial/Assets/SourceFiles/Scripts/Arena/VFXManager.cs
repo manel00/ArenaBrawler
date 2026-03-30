@@ -40,6 +40,8 @@ namespace ArenaEnhanced
 
         public static void SpawnShieldEffect(Transform parent)
         {
+            if (parent == null) return;
+            
             var go = GameObject.CreatePrimitive(PrimitiveType.Sphere);
             go.transform.SetParent(parent);
             go.transform.localPosition = Vector3.up;
@@ -71,6 +73,8 @@ namespace ArenaEnhanced
 
         public static void SpawnMeleeEffect(Vector3 pos, Vector3 dir)
         {
+            if (dir.sqrMagnitude < 0.001f) dir = Vector3.forward;
+            
             var go = GameObject.CreatePrimitive(PrimitiveType.Cube);
             go.transform.position = pos + dir * 0.5f;
             go.transform.localScale = new Vector3(2f, 0.3f, 0.3f);

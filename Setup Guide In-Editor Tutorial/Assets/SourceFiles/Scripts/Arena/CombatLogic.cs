@@ -6,7 +6,7 @@ namespace ArenaEnhanced
     // ============================================================
     // PROJECTILE
     // ============================================================
-    public class FireballProjectile : MonoBehaviour
+    public class FireballProjectile : PooledObject
     {
         public ArenaCombatant owner;
         public float minDamage = 15f;
@@ -18,15 +18,30 @@ namespace ArenaEnhanced
         public float lifeTime = 5f;
 
         private Rigidbody _rb;
+        private float _spawnTime;
 
         private void Awake()
         {
             _rb = GetComponent<Rigidbody>();
         }
 
-        private void Start()
+        public override void OnSpawnFromPool()
         {
-            Destroy(gameObject, lifeTime);
+            base.OnSpawnFromPool();
+            _spawnTime = Time.time;
+            if (_rb != null)
+            {
+                _rb.linearVelocity = Vector3.zero;
+                _rb.angularVelocity = Vector3.zero;
+            }
+        }
+
+        private void Update()
+        {
+            if (Time.time - _spawnTime > lifeTime)
+            {
+                ReturnToPool();
+            }
         }
 
         private void OnTriggerEnter(Collider other)
@@ -40,11 +55,11 @@ namespace ArenaEnhanced
                 target.TakeDamage(damage, owner);
                 ApplySplashDamage(target.transform.position, target);
                 VFXManager.SpawnImpactEffect(transform.position);
-                Destroy(gameObject);
+                ReturnToPool();
             }
             else if (other.gameObject != (owner != null ? owner.gameObject : null))
             {
-                Destroy(gameObject);
+                ReturnToPool();
             }
         }
 
@@ -63,15 +78,26 @@ namespace ArenaEnhanced
         }
     }
 
-    public class WeaponProjectile : MonoBehaviour
+    public class WeaponProjectile : PooledObject
     {
         public ArenaCombatant owner;
         public WeaponData weaponData;
         public float lifeTime = 4f;
 
-        private void Start()
+        private float _spawnTime;
+
+        public override void OnSpawnFromPool()
         {
-            Destroy(gameObject, lifeTime);
+            base.OnSpawnFromPool();
+            _spawnTime = Time.time;
+        }
+
+        private void Update()
+        {
+            if (Time.time - _spawnTime > lifeTime)
+            {
+                ReturnToPool();
+            }
         }
 
         private void OnTriggerEnter(Collider other)
@@ -98,16 +124,18 @@ namespace ArenaEnhanced
                 }
 
                 VFXManager.SpawnImpactEffect(transform.position);
-                Destroy(gameObject);
+                ReturnToPool();
             }
             else if (other.gameObject != (owner != null ? owner.gameObject : null))
             {
-                Destroy(gameObject);
+                ReturnToPool();
             }
         }
 
         private void ApplySplashDamage(Vector3 center, ArenaCombatant directTarget)
         {
+            if (weaponData == null) return;
+            
             Collider[] hits = Physics.OverlapSphere(center, weaponData.splashRadius, ~0, QueryTriggerInteraction.Ignore);
             foreach (var hit in hits)
             {
@@ -248,12 +276,45 @@ namespace ArenaEnhanced
     {
         public static void SpawnFireball(ArenaCombatant owner, Vector3 origin, Vector3 direction, float speed)
         {
-            var go = GameObject.CreatePrimitive(PrimitiveType.Sphere);
-            go.name = "Fireball";
-            go.transform.position = origin;
-            go.transform.localScale = Vector3.one * 0.45f;
+            // Intentar usar Object Pool primero
+            if (GenericObjectPool.Instance != null && GenericObjectPool.Instance.HasPool("Fireball"))
+            {
+                GameObject go = GenericObjectPool.Instance.GetFromPool("Fireball", origin, Quaternion.identity);
+                if (go != null)
+                {
+                    var rb = go.GetComponent<Rigidbody>();
+                    if (rb != null)
+                    {
+                        rb.linearVelocity = direction.normalized * speed;
+                    }
+                    
+                    var projectile = go.GetComponent<FireballProjectile>();
+                    if (projectile != null)
+                    {
+                        projectile.owner = owner;
+                    }
+                    
+                    // Ignorar colisión con owner
+                    if (owner != null)
+                    {
+                        var ownerCol = owner.GetComponent<Collider>();
+                        var projCol = go.GetComponent<Collider>();
+                        if (ownerCol != null && projCol != null)
+                            Physics.IgnoreCollision(ownerCol, projCol);
+                    }
+                    
+                    ArenaAudioManager.PlayFireball();
+                    return;
+                }
+            }
 
-            var renderer = go.GetComponent<Renderer>();
+            // Fallback: Crear tradicionalmente si no hay pool disponible
+            var goNew = GameObject.CreatePrimitive(PrimitiveType.Sphere);
+            goNew.name = "Fireball";
+            goNew.transform.position = origin;
+            goNew.transform.localScale = Vector3.one * 0.45f;
+
+            var renderer = goNew.GetComponent<Renderer>();
             if (renderer != null)
             {
                 var mat = new Material(Shader.Find("Universal Render Pipeline/Lit"));
@@ -263,16 +324,16 @@ namespace ArenaEnhanced
                 renderer.material = mat;
             }
 
-            var rb = go.AddComponent<Rigidbody>();
-            rb.mass = 0.8f;
-            rb.useGravity = false;
-            rb.collisionDetectionMode = CollisionDetectionMode.ContinuousDynamic;
-            rb.linearVelocity = direction.normalized * speed;
+            var rbNew = goNew.AddComponent<Rigidbody>();
+            rbNew.mass = 0.8f;
+            rbNew.useGravity = false;
+            rbNew.collisionDetectionMode = CollisionDetectionMode.ContinuousDynamic;
+            rbNew.linearVelocity = direction.normalized * speed;
 
-            var col = go.GetComponent<SphereCollider>();
+            var col = goNew.GetComponent<SphereCollider>();
             if (col != null) col.isTrigger = true;
 
-            var trail = go.AddComponent<TrailRenderer>();
+            var trail = goNew.AddComponent<TrailRenderer>();
             trail.time = 0.4f;
             trail.startWidth = 0.4f;
             trail.endWidth = 0.05f;
@@ -280,13 +341,13 @@ namespace ArenaEnhanced
             trail.startColor = new Color(1f, 0.5f, 0.1f, 1f);
             trail.endColor = new Color(1f, 0.2f, 0f, 0f);
 
-            var projectile = go.AddComponent<FireballProjectile>();
-            projectile.owner = owner;
+            var projectileNew = goNew.AddComponent<FireballProjectile>();
+            projectileNew.owner = owner;
 
             if (owner != null)
             {
                 var ownerCol = owner.GetComponent<Collider>();
-                var projCol = go.GetComponent<Collider>();
+                var projCol = goNew.GetComponent<Collider>();
                 if (ownerCol != null && projCol != null)
                     Physics.IgnoreCollision(ownerCol, projCol);
             }
@@ -296,18 +357,51 @@ namespace ArenaEnhanced
 
         public static void SpawnWeaponProjectile(ArenaCombatant owner, Vector3 origin, Vector3 direction, WeaponData weaponData)
         {
-            var go = GameObject.CreatePrimitive(PrimitiveType.Sphere);
-            go.name = $"Projectile_{(weaponData != null ? weaponData.weaponName : "Weapon")}";
-            go.transform.position = origin;
-            // AUMENTADO: Más grande para ser visible
-            go.transform.localScale = Vector3.one * 0.25f; 
+            string poolTag = weaponData != null && weaponData.type == WeaponType.Flamethrower ? "FlameProjectile" : "WeaponProjectile";
+            
+            // Intentar usar Object Pool primero
+            if (GenericObjectPool.Instance != null && GenericObjectPool.Instance.HasPool(poolTag))
+            {
+                GameObject go = GenericObjectPool.Instance.GetFromPool(poolTag, origin, Quaternion.LookRotation(direction));
+                if (go != null)
+                {
+                    var rb = go.GetComponent<Rigidbody>();
+                    if (rb != null)
+                    {
+                        Vector3 finalDirection = new Vector3(direction.x, 0, direction.z).normalized;
+                        rb.linearVelocity = finalDirection * (weaponData != null ? weaponData.projectileSpeed : 35f);
+                    }
+                    
+                    var projectile = go.GetComponent<WeaponProjectile>();
+                    if (projectile != null)
+                    {
+                        projectile.owner = owner;
+                        projectile.weaponData = weaponData;
+                    }
+                    
+                    // Ignorar colisión con owner
+                    if (owner != null)
+                    {
+                        var ownerCol = owner.GetComponent<Collider>();
+                        var projCol = go.GetComponent<Collider>();
+                        if (ownerCol != null && projCol != null)
+                            Physics.IgnoreCollision(ownerCol, projCol);
+                    }
+                    
+                    return;
+                }
+            }
 
-            var renderer = go.GetComponent<Renderer>();
+            // Fallback: Crear tradicionalmente
+            var goNew = GameObject.CreatePrimitive(PrimitiveType.Sphere);
+            goNew.name = $"Projectile_{(weaponData != null ? weaponData.weaponName : "Weapon")}";
+            goNew.transform.position = origin;
+            goNew.transform.localScale = Vector3.one * 0.25f;
+
+            var renderer = goNew.GetComponent<Renderer>();
             if (renderer != null)
             {
                 var mat = new Material(Shader.Find("Universal Render Pipeline/Lit"));
-                
-                // Color ROJO brillante para la bala
                 Color bulletColor = new Color(1f, 0.2f, 0.2f);
                 
                 if (weaponData != null && weaponData.weaponTexture != null)
@@ -317,7 +411,7 @@ namespace ArenaEnhanced
                 
                 mat.color = bulletColor;
                 mat.EnableKeyword("_EMISSION");
-                mat.SetColor("_EmissionColor", new Color(1f, 0.1f, 0.1f) * 3f); // Muy brillante
+                mat.SetColor("_EmissionColor", new Color(1f, 0.1f, 0.1f) * 3f);
                 
                 if (weaponData != null && weaponData.type == WeaponType.Flamethrower)
                 {
@@ -326,39 +420,35 @@ namespace ArenaEnhanced
                 renderer.material = mat;
             }
 
-            var rb = go.AddComponent<Rigidbody>();
-            rb.mass = 0.2f;
-            rb.useGravity = false;
-            rb.collisionDetectionMode = CollisionDetectionMode.ContinuousDynamic;
+            var rbNew = goNew.AddComponent<Rigidbody>();
+            rbNew.mass = 0.2f;
+            rbNew.useGravity = false;
+            rbNew.collisionDetectionMode = CollisionDetectionMode.ContinuousDynamic;
             
-            // Garantizar que la velocidad sea estrictamente horizontal (paralela al plano XZ)
-            Vector3 finalDirection = new Vector3(direction.x, 0, direction.z).normalized;
-            rb.linearVelocity = finalDirection * (weaponData != null ? weaponData.projectileSpeed : 35f);
+            Vector3 finalDir = new Vector3(direction.x, 0, direction.z).normalized;
+            rbNew.linearVelocity = finalDir * (weaponData != null ? weaponData.projectileSpeed : 35f);
 
-            var col = go.GetComponent<SphereCollider>();
+            var col = goNew.GetComponent<SphereCollider>();
             if (col != null) col.isTrigger = true;
 
-            var trail = go.AddComponent<TrailRenderer>();
-            trail.time = 0.4f; // AUMENTADO: Más largo
-            trail.startWidth = 0.25f; // AUMENTADO: Más grueso
+            var trail = goNew.AddComponent<TrailRenderer>();
+            trail.time = 0.4f;
+            trail.startWidth = 0.25f;
             trail.endWidth = 0.05f;
             trail.material = new Material(Shader.Find("Sprites/Default"));
             
-            // Estela ROJA muy visible
-            Color trailColor = new Color(1f, 0.1f, 0.1f, 1f); 
+            Color trailColor = new Color(1f, 0.1f, 0.1f, 1f);
             trail.startColor = trailColor;
             trail.endColor = new Color(1f, 0f, 0f, 0f);
 
-            var projectile = go.AddComponent<WeaponProjectile>();
-            projectile.owner = owner;
-            projectile.weaponData = weaponData;
-
-            Debug.Log($"[CombatLogic] Proyectil creado en {origin}, dir={finalDirection}, speed={rb.linearVelocity.magnitude}");
+            var projectileNew = goNew.AddComponent<WeaponProjectile>();
+            projectileNew.owner = owner;
+            projectileNew.weaponData = weaponData;
 
             if (owner != null)
             {
                 var ownerColliders = owner.GetComponentsInChildren<Collider>();
-                var projCol = go.GetComponent<Collider>();
+                var projCol = goNew.GetComponent<Collider>();
                 if (projCol != null)
                 {
                     foreach (var c in ownerColliders)

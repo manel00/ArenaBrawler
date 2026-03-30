@@ -112,7 +112,9 @@ namespace ArenaEnhanced
             // Read settings from WelcomeScreen (PlayerPrefs)
             string playerName = PlayerPrefs.GetString("PlayerName", defaultPlayerName);
             int botCount = overrideBotCount >= 0 ? overrideBotCount : PlayerPrefs.GetInt("BotCount", defaultBots);
+#if DEBUG
             Debug.Log($"[ArenaBootstrap] BuildArenaMatch: Player={playerName}, AlliedBots={botCount}");
+#endif
             List<ArenaCombatant> alliedCombatants = new List<ArenaCombatant>();
 
             // Spawn Player (Team 1)
@@ -147,7 +149,9 @@ namespace ArenaEnhanced
             }
             else
             {
+#if DEBUG
                 Debug.LogError("[ArenaBootstrap] BuildArenaMatch: Player spawn FAILED!");
+#endif
                 return;
             }
 
@@ -324,7 +328,7 @@ namespace ArenaEnhanced
                     rifleMat,
                     null,
                     new Color(0.25f, 0.55f, 1f),
-                    new Vector3(1.0f, 1.0f, 1.0f), // Tamaño normal en suelo
+                    new Vector3(2f, 2f, 2f), // Tamaño normal en suelo
                     180f, // rotationY - apunta hacia adelante
                     10f, // minDamage
                     25f, // maxDamage
@@ -348,8 +352,8 @@ namespace ArenaEnhanced
                     shotgunMat,
                     null,
                     new Color(1f, 0.82f, 0.35f),
-                    new Vector3(1.0f, 1.0f, 1.0f), // Tamaño normal en suelo
-                    0f, // rotationY
+                    new Vector3(0.5f, 0.5f, 0.5f), // Tamaño normal en suelo
+                    180f, // rotationY - apunta hacia adelante (igual que rifle)
                     10f, // minDamage
                     25f, // maxDamage
                     18f, // range
@@ -372,8 +376,8 @@ namespace ArenaEnhanced
                     flamethrowerMat,
                     null,
                     new Color(1f, 0.35f, 0.1f),
-                    new Vector3(1.0f, 1.0f, 1.0f), // Tamaño normal en suelo
-                    -90f, // rotationY
+                    new Vector3(12f, 12f, 12f), // Tamaño normal en suelo
+                    180f, // rotationY - apunta hacia adelante (igual que rifle)
                     0f, // minDamage
                     0f, // maxDamage
                     20f, // range
@@ -447,6 +451,7 @@ namespace ArenaEnhanced
             data.attackVFX = vfx;
             return data;
         }
+#endif
 
         private static ArenaCombatant SpawnBoss(Vector3 position)
         {

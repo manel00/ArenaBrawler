@@ -292,6 +292,7 @@ namespace ArenaEnhanced
                 case 1: success = CastFireball(); break;
                 case 2: success = SummonDog(); break;
                 case 4: success = PerformWeaponAttack(); break;
+                case 5: success = PerformMelee(); break;
             }
 
             if (success)
@@ -321,6 +322,10 @@ namespace ArenaEnhanced
 
         private bool PerformMelee()
         {
+            // Si la katana está equipada, no ejecutar melee (la katana tiene su propio sistema)
+            var katana = GetComponent<KatanaWeapon>();
+            if (katana != null && katana.IsEquipped) return false;
+            
             // Randomly choose between Punch and Kick category, but alternate sides within each category
             int attackType;
             if (Random.value < 0.5f)

@@ -381,6 +381,8 @@ namespace ArenaEnhanced
 
         private void ApplyHorizontalVelocity()
         {
+            if (_rb == null) return;
+            
             Vector3 vel = _rb.linearVelocity;
             vel.x = _flatVelocity.x;
             vel.z = _flatVelocity.z;

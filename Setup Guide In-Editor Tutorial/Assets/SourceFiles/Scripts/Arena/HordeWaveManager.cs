@@ -62,12 +62,16 @@ namespace ArenaEnhanced
             CurrentWave++;
             if (CurrentWave > TotalWaves)
             {
+#if DEBUG
                 Debug.Log("[HordeWaveManager] All waves cleared - VICTORY!");
+#endif
                 ArenaGameManager.Instance?.TriggerVictory();
                 return;
             }
 
+#if DEBUG
             Debug.Log($"[HordeWaveManager] === WAVE {CurrentWave} / {TotalWaves} STARTING ===");
+#endif
             IsWaveActive = true;
             _activeEnemies.Clear();
 
@@ -93,13 +97,17 @@ namespace ArenaEnhanced
                 if (delay > 0f) yield return new WaitForSeconds(delay);
 
                 SpawnOneBoss();
+#if DEBUG
                 Debug.Log($"[HordeWaveManager] Wave {waveIndex} - Boss {i + 1} spawned at {Time.time - waveStartTime:F0}s");
+#endif
             }
 
             // Wait until all enemies defeated
             yield return new WaitUntil(AllEnemiesDefeated);
 
+#if DEBUG
             Debug.Log($"[HordeWaveManager] Wave {waveIndex} complete!");
+#endif
             IsWaveActive = false;
             yield return new WaitForSeconds(3f);
             StartNextWave();
@@ -137,7 +145,9 @@ namespace ArenaEnhanced
         {
             string path = bossEnemyPaths[Random.Range(0, bossEnemyPaths.Length)];
             Vector3 pos = RandomEdgePosition();
-            pos.y = 0.5f;
+            // Spawn boss with proper ground contact - collider height is bossScaleMultiplier * PlayerHeight
+            // Collider center is at half height, so spawn at 0 to ensure feet touch ground
+            pos.y = 0f;
 
             var combatant = HordeEnemySpawner.SpawnBossEnemy(path, pos, bossScaleMultiplier);
             if (combatant != null)

@@ -129,12 +129,12 @@ namespace ArenaEnhanced
             var kb = Keyboard.current;
             if (kb != null)
             {
-                down = kb.digit4Key.wasPressedThisFrame || kb.numpad4Key.wasPressedThisFrame;
-                up   = kb.digit4Key.wasReleasedThisFrame || kb.numpad4Key.wasReleasedThisFrame;
+                down = kb.digit5Key.wasPressedThisFrame || kb.numpad5Key.wasPressedThisFrame;
+                up   = kb.digit5Key.wasReleasedThisFrame || kb.numpad5Key.wasReleasedThisFrame;
             }
 #else
-            down = Input.GetKeyDown(KeyCode.Alpha4) || Input.GetKeyDown(KeyCode.Keypad4);
-            up   = Input.GetKeyUp(KeyCode.Alpha4)   || Input.GetKeyUp(KeyCode.Keypad4);
+            down = Input.GetKeyDown(KeyCode.Alpha5) || Input.GetKeyDown(KeyCode.Keypad5);
+            up   = Input.GetKeyUp(KeyCode.Alpha5)   || Input.GetKeyUp(KeyCode.Keypad5);
 #endif
 
             if (down) _key5DownAt = Time.time;

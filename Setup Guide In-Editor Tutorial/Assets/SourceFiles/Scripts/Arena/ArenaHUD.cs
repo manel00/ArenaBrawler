@@ -195,23 +195,31 @@ namespace ArenaEnhanced
             }
             else
             {
+#if DEBUG
                 Debug.LogError("[ArenaHUD] ❌ No se pudo encontrar PlayerController!");
+#endif
             }
         }
 
         private void OnPlayerHealthChanged(float currentHp, float maxHp)
         {
+#if DEBUG
             Debug.Log($"[ArenaHUD] OnPlayerHealthChanged llamado: {currentHp}/{maxHp}, _healthBar null? {_healthBar == null}");
+#endif
             
             if (_healthBar != null && maxHp > 0)
             {
                 float fillAmount = currentHp / maxHp;
                 _healthBar.fillAmount = fillAmount;
+#if DEBUG
                 Debug.Log($"[ArenaHUD] ✅ Barra actualizada: fillAmount = {fillAmount:F2}");
+#endif
             }
             else
             {
+#if DEBUG
                 Debug.LogError($"[ArenaHUD] ❌ No se pudo actualizar barra: _healthBar={_healthBar}, maxHp={maxHp}");
+#endif
             }
         }
 
@@ -269,11 +277,16 @@ namespace ArenaEnhanced
         // ─────────────────────────────────────────────────────────────────────
         public void Initialize(ArenaCombatant player)
         {
-            if (player != null)
+            if (player == null) 
             {
-                playerController = player.GetComponent<PlayerController>();
-                SubscribeToHealthEvents();
+#if DEBUG
+                Debug.LogWarning("[ArenaHUD] Initialize llamado con player null");
+#endif
+                return;
             }
+            
+            playerController = player.GetComponent<PlayerController>();
+            SubscribeToHealthEvents();
         }
 
         public void AddPoints(int points)
@@ -314,6 +327,22 @@ namespace ArenaEnhanced
         }
         public void SetPlayerController(PlayerController c) 
         { 
+            if (c == null) 
+            {
+#if DEBUG
+                Debug.LogWarning("[ArenaHUD] SetPlayerController llamado con null");
+#endif
+                return;
+            }
+            
+            // Desuscribir del anterior
+            if (playerController != null)
+            {
+                var oldCombatant = playerController.GetComponent<ArenaCombatant>();
+                if (oldCombatant != null)
+                    oldCombatant.OnHealthChanged -= OnPlayerHealthChanged;
+            }
+            
             playerController = c;
             SubscribeToHealthEvents();
         }

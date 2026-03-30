@@ -115,7 +115,9 @@ namespace ArenaEnhanced
             if (!_allCombatants.Contains(this)) 
             {
                 _allCombatants.Add(this);
+#if DEBUG
                 Debug.Log($"[ArenaCombatant] {displayName} añadido a la lista global. Total: {_allCombatants.Count}");
+#endif
             }
         }
 
@@ -124,7 +126,9 @@ namespace ArenaEnhanced
             if (_allCombatants.Contains(this))
             {
                 _allCombatants.Remove(this);
+#if DEBUG
                 Debug.Log($"[ArenaCombatant] {displayName} removido de la lista global. Total: {_allCombatants.Count}");
+#endif
             }
         }
 
@@ -149,7 +153,9 @@ namespace ArenaEnhanced
 
             hp = Mathf.Max(0, hp - finalDamage);
             
+#if DEBUG
             Debug.Log($"[ArenaCombatant] {displayName} recibió {finalDamage} daño. HP: {hp}/{maxHp}. Invocando OnHealthChanged...");
+#endif
             
             OnHealthChanged?.Invoke(hp, maxHp);
             OnDamageReceived?.Invoke(finalDamage, source);
@@ -189,7 +195,9 @@ namespace ArenaEnhanced
             hp = Mathf.Min(maxHp, hp + amount);
             OnHealthChanged?.Invoke(hp, maxHp);
 
+#if DEBUG
             Debug.Log($"[ArenaCombatant] {displayName} se curó {amount}. HP: {hp}/{maxHp}");
+#endif
         }
 
         /// <summary>
@@ -212,7 +220,9 @@ namespace ArenaEnhanced
         private void Die()
         {
             if (hp > 0) hp = 0;
+#if DEBUG
             Debug.Log($"[ArenaCombatant] {displayName} ha muerto.");
+#endif
             
             OnDeath?.Invoke(gameObject);
             OnDeathCombatant?.Invoke(this);
@@ -270,7 +280,9 @@ namespace ArenaEnhanced
             gameObject.SetActive(true);
             OnHealthChanged?.Invoke(hp, maxHp);
 
+#if DEBUG
             Debug.Log($"[ArenaCombatant] {displayName} respawneado en {position}.");
+#endif
         }
 
         /// <summary>

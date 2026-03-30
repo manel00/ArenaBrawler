@@ -106,7 +106,9 @@ namespace WoW.Armas
         /// </summary>
         public bool Attack()
         {
+#if DEBUG
             Debug.Log($"[PlayerWeaponSystem] Attack() llamado. HasWeapon: {HasWeapon}, currentWeapon: {(currentWeaponData != null ? currentWeaponData.weaponName : "null")}");
+#endif
             return AttackTarget(null);
         }
 
@@ -114,22 +116,30 @@ namespace WoW.Armas
         {
             if (!HasWeapon) 
             {
+#if DEBUG
                 Debug.LogWarning("[PlayerWeaponSystem] AttackTarget falló: No tiene arma");
+#endif
                 return false;
             }
             if (Time.time - _lastAttackTime < currentWeaponData.attackCooldown) 
             {
+#if DEBUG
                 Debug.Log($"[PlayerWeaponSystem] AttackTarget falló: Cooldown activo ({Time.time - _lastAttackTime:F2} < {currentWeaponData.attackCooldown:F2})");
+#endif
                 return false;
             }
             if (currentWeaponData.UsesAmmo && currentAmmo == 0) 
             {
+#if DEBUG
                 Debug.LogWarning("[PlayerWeaponSystem] AttackTarget falló: Sin munición");
+#endif
                 BreakWeapon();
                 return false;
             }
             
+#if DEBUG
             Debug.Log($"[PlayerWeaponSystem] Disparando {currentWeaponData.weaponName}! Munición: {currentAmmo}, FireMode: {currentWeaponData.fireMode}");
+#endif
             
             _lastAttackTime = Time.time;
             Vector3 origin = GetAttackOrigin();
@@ -146,7 +156,9 @@ namespace WoW.Armas
                     PerformContinuousAttack(origin, baseDirection);
                     break;
                 default:
+#if DEBUG
                     Debug.Log("[PlayerWeaponSystem] Ejecutando PerformProjectileShot");
+#endif
                     PerformProjectileShot(origin, baseDirection);
                     break;
             }
@@ -170,18 +182,26 @@ namespace WoW.Armas
 
         private void PerformProjectileShot(Vector3 origin, Vector3 baseDirection)
         {
+            if (currentWeaponData == null) return;
+            
             int projectileCount = Mathf.Max(1, currentWeaponData.projectilesPerShot);
+#if DEBUG
             Debug.Log($"[PlayerWeaponSystem] PerformProjectileShot: {projectileCount} proyectiles, origin={origin}, dir={baseDirection}");
+#endif
             for (int i = 0; i < projectileCount; i++)
             {
                 Vector3 dir = ApplySpread(baseDirection, currentWeaponData.spreadAngle, i, projectileCount);
+#if DEBUG
                 Debug.Log($"[PlayerWeaponSystem] Spawning proyectil {i+1}/{projectileCount}, dir={dir}");
+#endif
                 RuntimeSpawner.SpawnWeaponProjectile(_owner, origin, dir, currentWeaponData);
             }
         }
 
         private void PerformHitscanShot(Vector3 origin, Vector3 baseDirection)
         {
+            if (currentWeaponData == null) return;
+            
             int projectileCount = Mathf.Max(1, currentWeaponData.projectilesPerShot);
             for (int i = 0; i < projectileCount; i++)
             {
@@ -331,7 +351,7 @@ namespace WoW.Armas
             if (!HasWeapon) return;
             
             // Calcular posición de drop (a la izquierda del jugador, 1 metro)
-            Vector3 dropPosition = transform.position - transform.right * 2f;
+            Vector3 dropPosition = transform.position - transform.right * 4f;
             dropPosition.y = 0.5f; // Altura del suelo
             
             // Crear pickup en el suelo
@@ -530,11 +550,11 @@ namespace WoW.Armas
             {
                 string name = currentWeaponData.weaponName.ToLower();
                 if (name.Contains("shotgun"))
-                    handScale = 0.6f;
+                    handScale = 0.1f;
                 else if (name.Contains("assault") || name.Contains("rifle"))
-                    handScale = 0.55f;
+                    handScale = 0.4f;
                 else if (name.Contains("flame"))
-                    handScale = 0.5f;
+                    handScale = 2.5f;
             }
             
             model.transform.localScale = Vector3.one * handScale;
@@ -575,6 +595,8 @@ namespace WoW.Armas
             else if (weaponName.Contains("flame"))
             {
                 localPos = new Vector3(0.13f, -0.07f, 0.2f);
+                // Flamethrower needs different rotation when held to point forward
+                localRot = new Vector3(0, 90f, 0);
             }
 
             model.transform.localPosition = localPos;
