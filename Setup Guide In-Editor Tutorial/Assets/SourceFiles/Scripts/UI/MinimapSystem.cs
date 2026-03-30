@@ -87,7 +87,7 @@ namespace ArenaEnhanced
         private void BuildMinimapUI()
         {
             // Crear canvas si no existe
-            Canvas canvas = FindFirstObjectByType<Canvas>();
+            Canvas canvas = FindAnyObjectByType<Canvas>();
             if (canvas == null)
             {
                 GameObject canvasGO = new GameObject("MinimapCanvas");

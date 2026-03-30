@@ -3,7 +3,6 @@ using System.Linq;
 using UnityEngine;
 using UnityEngine.SceneManagement;
 using UnityEngine.UI;
-using WoW.Armas;
 
 #if UNITY_EDITOR
 using UnityEditor;
@@ -39,15 +38,18 @@ namespace ArenaEnhanced
 
         private void Start()
         {
+#if DEBUG
             Debug.Log("[ArenaBootstrap] Start: Initializing Horde Survival arena...");
-
+#endif
             // Check if we came from welcome screen
             string fromWelcome = PlayerPrefs.GetString("FromWelcomeScreen", "false");
             string gameMode = PlayerPrefs.GetString("GameMode", "");
 
             if (fromWelcome != "true" || string.IsNullOrEmpty(gameMode))
             {
+#if DEBUG
                 Debug.Log("[ArenaBootstrap] Not from welcome screen, showing welcome UI...");
+#endif
                 ShowWelcomeScreen();
                 return;
             }

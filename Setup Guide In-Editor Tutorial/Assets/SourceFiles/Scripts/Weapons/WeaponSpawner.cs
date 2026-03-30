@@ -1,7 +1,6 @@
 using UnityEngine;
-using WoW.Armas;
 
-namespace WoW.Armas
+namespace ArenaEnhanced
 {
     /// <summary>
     /// Script de utilidad para spawnear armas en la escena

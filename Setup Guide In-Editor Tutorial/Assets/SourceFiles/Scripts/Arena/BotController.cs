@@ -1,6 +1,5 @@
 using UnityEngine;
 using System.Collections;
-using WoW.Armas;
 
 namespace ArenaEnhanced
 {
@@ -58,6 +57,25 @@ namespace ArenaEnhanced
         [Range(1f, 10f)]
         [SerializeField] private float groupSpreadDistance = 3f;
         
+        [Header("Tactical AI")]
+        [Tooltip("Activar comportamiento de flanqueo")]
+        [SerializeField] private bool enableFlanking = true;
+        
+        [Tooltip("Distancia lateral para flanquear (metros)")]
+        [Range(2f, 15f)]
+        [SerializeField] private float flankingDistance = 6f;
+        
+        [Tooltip("Probabilidad de intentar flanquear")]
+        [Range(0f, 1f)]
+        [SerializeField] private float flankingChance = 0.6f;
+        
+        [Tooltip("Priorizar enemigos con baja vida")]
+        [SerializeField] private bool prioritizeLowHealth = true;
+        
+        [Tooltip("Multiplicador de puntuación para vida baja")]
+        [Range(1f, 5f)]
+        [SerializeField] private float lowHealthBonusMultiplier = 2f;
+
         [Header("Dependencies")]
         [SerializeField] private Transform playerTransform;
 
@@ -78,6 +96,10 @@ namespace ArenaEnhanced
         private readonly RaycastHit[] _combatHitBuffer = new RaycastHit[1];
 
         private static readonly int HashSpeed = Animator.StringToHash("Speed");
+
+        private float _currentFlankAngle = 0f;
+        private float _targetFlankAngle = 0f;
+        private float _lastFlankChangeTime = 0f;
 
         private void Awake()
         {
@@ -263,27 +285,40 @@ namespace ArenaEnhanced
                 float distance = Vector3.Distance(transform.position, c.transform.position);
                 if (distance > detectDistance) continue;
                 
-                // Score calculation
+                // Score calculation - TACTICAL PRIORITIZATION
                 float score = 0f;
                 
-                // Prioritize player's target
+                // 1. Prioritize low health enemies (HIGH PRIORITY)
+                if (prioritizeLowHealth)
+                {
+                    float healthPercent = c.hp / c.maxHp;
+                    float lowHealthBonus = (1f - healthPercent) * 100f * lowHealthBonusMultiplier;
+                    score += lowHealthBonus;
+                    
+                    // Extra bonus for very low health (finishing targets)
+                    if (healthPercent < 0.25f) score += 50f;
+                }
+                
+                // 2. Distance factor (closer is better, but not too close)
+                float distanceFactor = 1f - Mathf.Clamp01(distance / detectDistance);
+                score += distanceFactor * 25f;
+                
+                // 3. Prefer enemies the player is attacking
                 if (playerTransform != null)
                 {
                     float playerDist = Vector3.Distance(playerTransform.position, c.transform.position);
-                    if (playerDist < 10f) score += 50f;
+                    if (playerDist < 10f) score += 30f;
                 }
                 
-                // Prioritize low health enemies
-                score += (1f - (c.hp / c.maxHp)) * 30f;
-                
-                // Prioritize closer enemies
-                score += (1f - (distance / detectDistance)) * 20f;
-                
-                // Deprioritize bosses (unless no other choice)
+                // 4. Deprioritize bosses unless they're the only target
                 if (c.name.Contains("T-Rex") || c.CompareTag("Boss"))
                 {
-                    score -= 100f;
+                    score -= 80f;
                 }
+                
+                // 5. Prefer targets that are already being attacked by allies
+                // (focus fire indirectly through target persistence)
+                if (_currentTarget == c) score += 15f;
                 
                 if (score > bestScore)
                 {
@@ -300,18 +335,79 @@ namespace ArenaEnhanced
             Vector3 toTarget = target.transform.position - transform.position;
             float dist = toTarget.magnitude;
             Vector3 moveDir = Vector3.zero;
+            
+            // Calculate optimal distance based on weapon
             float desiredDistance = preferredDistance;
-
             if (_weaponSystem != null && _weaponSystem.HasWeapon)
             {
-                desiredDistance = Mathf.Clamp(_weaponSystem.CurrentRange * 0.55f, 6f, 16f);
+                float weaponRange = _weaponSystem.CurrentRange;
+                // Stay at 60% of weapon range for optimal damage
+                desiredDistance = Mathf.Clamp(weaponRange * 0.6f, 4f, 14f);
             }
 
-            if (dist > desiredDistance) moveDir = toTarget.normalized;
-            else if (dist < desiredDistance * 0.6f) moveDir = -toTarget.normalized;
+            // FLANKING BEHAVIOR
+            if (enableFlanking && dist < detectDistance * 0.8f)
+            {
+                // Change flank angle periodically or when target changes
+                if (Time.time - _lastFlankChangeTime > 3f || 
+                    (_currentTarget != null && _currentTarget != target))
+                {
+                    _lastFlankChangeTime = Time.time;
+                    if (Random.value < flankingChance)
+                    {
+                        // Random angle between -90 and 90 degrees for flanking
+                        _targetFlankAngle = Random.Range(-70f, 70f);
+                    }
+                    else
+                    {
+                        _targetFlankAngle = 0f; // Direct approach
+                    }
+                }
+                
+                // Smoothly interpolate current flank angle
+                _currentFlankAngle = Mathf.Lerp(_currentFlankAngle, _targetFlankAngle, Time.fixedDeltaTime * 2f);
+                
+                // Calculate flanking position
+                Vector3 targetForward = target.transform.forward;
+                Vector3 targetRight = target.transform.right;
+                
+                // Position: target position + rotated offset
+                Quaternion rotation = Quaternion.Euler(0f, _currentFlankAngle, 0f);
+                Vector3 flankOffset = rotation * (targetForward * -flankingDistance);
+                Vector3 desiredPos = target.transform.position + flankOffset;
+                
+                // Move towards flanking position
+                Vector3 toFlankPos = desiredPos - transform.position;
+                
+                // Distance control - approach or retreat
+                if (dist > desiredDistance * 1.2f)
+                {
+                    // Too far - close in
+                    moveDir = (toFlankPos.normalized + toTarget.normalized).normalized;
+                }
+                else if (dist < desiredDistance * 0.7f)
+                {
+                    // Too close - back up while flanking
+                    moveDir = (toFlankPos.normalized - toTarget.normalized * 0.5f).normalized;
+                }
+                else
+                {
+                    // Good distance - pure flanking movement
+                    moveDir = toFlankPos.normalized;
+                }
+            }
+            else
+            {
+                // STANDARD DISTANCE CONTROL (no flanking)
+                if (dist > desiredDistance) moveDir = toTarget.normalized;
+                else if (dist < desiredDistance * 0.6f) moveDir = -toTarget.normalized;
+            }
 
+            // Add strafing for unpredictability
             Vector3 side = Vector3.Cross(Vector3.up, toTarget.normalized);
-            moveDir += side * Mathf.Sin((Time.time * 1.2f) + _strafeSeed) * strafeStrength;
+            moveDir += side * Mathf.Sin((Time.time * 1.2f) + _strafeSeed) * strafeStrength * 0.3f;
+            
+            // Avoid obstacles
             moveDir = AvoidObstacles(moveDir.normalized);
 
             _flatVelocity = Vector3.MoveTowards(_flatVelocity, moveDir * moveSpeed, acceleration * Time.fixedDeltaTime);
@@ -322,6 +418,7 @@ namespace ArenaEnhanced
                 _animator.SetFloat(HashSpeed, _flatVelocity.magnitude);
             }
 
+            // Look at target
             Vector3 look = Vector3.Scale(toTarget, new Vector3(1f, 0f, 1f));
             if (look.sqrMagnitude > 0.01f)
             {
@@ -329,6 +426,7 @@ namespace ArenaEnhanced
                 transform.rotation = Quaternion.Slerp(transform.rotation, rot, 10f * Time.fixedDeltaTime);
             }
 
+            // ATTACK
             bool canAttack = _weaponSystem != null && _weaponSystem.HasWeapon;
             if (canAttack)
             {
@@ -336,6 +434,7 @@ namespace ArenaEnhanced
                 return;
             }
 
+            // Fallback fireball attack
             if (dist <= detectDistance && Time.time >= _nextFire)
             {
                 Vector3 rayOrigin = transform.position + Vector3.up * 1f;

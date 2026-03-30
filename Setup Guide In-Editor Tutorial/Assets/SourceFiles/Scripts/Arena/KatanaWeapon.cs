@@ -1,9 +1,6 @@
 using System.Collections;
 using UnityEngine;
-
-#if ENABLE_INPUT_SYSTEM
 using UnityEngine.InputSystem;
-#endif
 
 namespace ArenaEnhanced
 {
@@ -50,6 +47,9 @@ namespace ArenaEnhanced
         private bool  _onCooldown = false;
         private float _key5DownAt = -1f;     // timestamp when 5 was first pressed
 
+        // Public accessor for other systems
+        public bool IsEquipped => _equipped;
+
         // Animator trigger hashes
         private static readonly int HASH_ATTACK  = Animator.StringToHash("Attack");
         private static readonly int HASH_ATTACK2 = Animator.StringToHash("Attack2");
@@ -61,6 +61,68 @@ namespace ArenaEnhanced
             _animator  = GetComponentInChildren<Animator>();
             _cam       = Camera.main;
             LocateHandBone();
+#if DEBUG
+            Debug.Log("[KatanaWeapon] Awake - Component initialized on " + gameObject.name);
+#endif
+        }
+
+        private void OnEnable()
+        {
+            // Subscribe to InputManager events
+            InputManager.OnKatanaEquipToggle += ToggleEquip;
+            InputManager.OnKatanaAttackPressed += OnAttackPressed;
+            InputManager.OnKatanaAttackReleased += OnAttackReleased;
+#if DEBUG
+            Debug.Log("[KatanaWeapon] OnEnable - Events subscribed");
+#endif
+        }
+
+        private void OnDisable()
+        {
+            // Unsubscribe from InputManager events
+            InputManager.OnKatanaEquipToggle -= ToggleEquip;
+            InputManager.OnKatanaAttackPressed -= OnAttackPressed;
+            InputManager.OnKatanaAttackReleased -= OnAttackReleased;
+#if DEBUG
+            Debug.Log("[KatanaWeapon] OnDisable - Events unsubscribed");
+#endif
+        }
+
+        private void Start()
+        {
+#if DEBUG
+            Debug.Log("[KatanaWeapon] Start - Checking InputManager...");
+            if (InputManager.Instance == null)
+                Debug.LogError("[KatanaWeapon] InputManager.Instance is NULL!");
+#endif
+        }
+
+        private void Update()
+        {
+            // No procesar input si no está equipada
+            if (!_equipped) return;
+            
+            // Fallback input handling if events don't work
+#if ENABLE_INPUT_SYSTEM
+            if (Keyboard.current != null)
+            {
+                if (Keyboard.current.kKey.wasPressedThisFrame)
+                    ToggleEquip();
+
+                if (Keyboard.current.digit5Key.wasPressedThisFrame || Keyboard.current.numpad5Key.wasPressedThisFrame)
+                    OnAttackPressed();
+                if (Keyboard.current.digit5Key.wasReleasedThisFrame || Keyboard.current.numpad5Key.wasReleasedThisFrame)
+                    OnAttackReleased();
+            }
+#else
+            if (Input.GetKeyDown(KeyCode.K))
+                ToggleEquip();
+
+            if (Input.GetKeyDown(KeyCode.Alpha5) || Input.GetKeyDown(KeyCode.Keypad5))
+                OnAttackPressed();
+            if (Input.GetKeyUp(KeyCode.Alpha5) || Input.GetKeyUp(KeyCode.Keypad5))
+                OnAttackReleased();
+#endif
         }
 
         private void LocateHandBone()
@@ -85,24 +147,12 @@ namespace ArenaEnhanced
             return null;
         }
 
-        // ─────────────────────────────────────────────────────────────────────
-        private void Update()
-        {
-            PollEquipKey();
-            if (_equipped && !_onCooldown) PollAttackKey();
-        }
-
         // ── K: toggle equip ──────────────────────────────────────────────────
-        private void PollEquipKey()
+        private void ToggleEquip()
         {
-            bool pressed = false;
-#if ENABLE_INPUT_SYSTEM
-            pressed = Keyboard.current != null && Keyboard.current.kKey.wasPressedThisFrame;
-#else
-            pressed = Input.GetKeyDown(KeyCode.K);
+#if DEBUG
+            Debug.Log("[KatanaWeapon] ToggleEquip called");
 #endif
-            if (!pressed) return;
-
             _equipped = !_equipped;
             if (_equipped) DoEquip();
             else DoUnequip();
@@ -111,65 +161,64 @@ namespace ArenaEnhanced
         private void DoEquip()
         {
             BuildKatanaModel();
+#if DEBUG
             Debug.Log("[Katana] EQUIPADA — [5] rapido = combo, [5] hold = cargado, [K] = guardar");
+#endif
         }
 
         private void DoUnequip()
         {
             DestroyKatanaModel();
+            // Resetear estado de ataque al desequipar
+            _key5DownAt = -1f;
+            StopAllCoroutines();
+            _onCooldown = false;
+#if DEBUG
             Debug.Log("[Katana] GUARDADA");
+#endif
         }
 
         // ── 5: tap vs hold ───────────────────────────────────────────────────
-        private void PollAttackKey()
+        private void OnAttackPressed()
         {
-            bool down = false, up = false;
-
-#if ENABLE_INPUT_SYSTEM
-            var kb = Keyboard.current;
-            if (kb != null)
-            {
-                down = kb.digit5Key.wasPressedThisFrame || kb.numpad5Key.wasPressedThisFrame;
-                up   = kb.digit5Key.wasReleasedThisFrame || kb.numpad5Key.wasReleasedThisFrame;
-            }
-#else
-            down = Input.GetKeyDown(KeyCode.Alpha5) || Input.GetKeyDown(KeyCode.Keypad5);
-            up   = Input.GetKeyUp(KeyCode.Alpha5)   || Input.GetKeyUp(KeyCode.Keypad5);
+#if DEBUG
+            Debug.Log($"[KatanaWeapon] OnAttackPressed - equipped:{_equipped}");
 #endif
+            if (!_equipped) return;
+            _key5DownAt = Time.time;
+        }
 
-            if (down) _key5DownAt = Time.time;
+        private void OnAttackReleased()
+        {
+#if DEBUG
+            Debug.Log($"[KatanaWeapon] OnAttackReleased - key5DownAt:{_key5DownAt}");
+#endif
+            if (!_equipped) return;
+            if (_key5DownAt < 0f) return;
 
-            if (up && _key5DownAt >= 0f)
-            {
-                float held = Time.time - _key5DownAt;
-                _key5DownAt = -1f;
+            float held = Time.time - _key5DownAt;
+            _key5DownAt = -1f;
 
-                if (held < chargeThreshold)
-                    StartCoroutine(RapidComboRoutine());
-                else
-                    StartCoroutine(ChargedAttackRoutine());
-            }
+            if (held < chargeThreshold)
+                StartCoroutine(RapidComboRoutine());
+            else
+                StartCoroutine(ChargedAttackRoutine());
         }
 
         // ─────────────────────────────────────────────────────────────────────
-        // Attack routines
+        // Attack routines (sin cooldowns)
         // ─────────────────────────────────────────────────────────────────────
         private IEnumerator RapidComboRoutine()
         {
-            _onCooldown = true;
             for (int i = 0; i < 5; i++)
             {
                 ExecuteSlash(rapidDamagePerHit, false, i);
                 yield return new WaitForSeconds(comboWindow);
             }
-            yield return new WaitForSeconds(cooldownAfterCombo);
-            _onCooldown = false;
         }
 
         private IEnumerator ChargedAttackRoutine()
         {
-            _onCooldown = true;
-
             // Brief charge visual
             float t = 0f;
             while (t < 0.35f)
@@ -181,9 +230,6 @@ namespace ArenaEnhanced
             }
 
             ExecuteSlash(chargedDamage, true, 0);
-
-            yield return new WaitForSeconds(cooldownAfterCharge);
-            _onCooldown = false;
         }
 
         private void ExecuteSlash(float damage, bool isCharged, int comboIndex)
@@ -419,7 +465,6 @@ namespace ArenaEnhanced
         private void OnDestroy() => DestroyKatanaModel();
 
         // ── Public status ─────────────────────────────────────────────────────
-        public bool IsEquipped   => _equipped;
         public bool IsOnCooldown => _onCooldown;
     }
 }

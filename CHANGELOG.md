@@ -4,6 +4,76 @@ All notable changes to this project are documented here.
 
 ---
 
+## [Unreleased] — 2026-03-30
+
+### Added
+- **Flamethrower Weapon System** — Massive 30m range fire weapon:
+  - `FlamethrowerVFXController.cs` — Premium particle system with 800 particles/sec, cone shape 30° angle
+  - `FlamethrowerDamageZone.cs` — Continuous damage zone with burn DOT effects
+  - Color over lifetime: Yellow → White → Orange → Red → Smoke
+  - 25-50 DPS with distance-based damage falloff
+- **CameraCache.cs** — Global camera caching system to eliminate Camera.main search overhead
+- **WeaponFactoryConfig.cs** — ScriptableObject for centralized weapon balance configuration
+- **CameraCache.cs** — Performance utility to cache Camera.main and eliminate per-frame lookups
+- **EnhancedDamageNumbers.cs** — Premium floating damage numbers with critical hit effects
+- **VisualEffectsManager.cs** — Camera shake, screen flash, slow motion, and hit stop effects
+- **ParticleEffectController.cs** — Component for pooled particle lifecycle management
+- **GameBalanceConfig.cs** — Centralized balance configuration ScriptableObject
+- **ActualDPS and AverageDamage properties** to `WeaponData.cs` for auto-calculated stats
+
+### Changed
+- **WeaponData.cs**:
+  - Changed namespace from `WoW.Armas` to `ArenaEnhanced`
+  - Added `Rifle` and `Shotgun` to `WeaponType` enum
+  - Added `groundScale` and `handScale` properties
+  - Renamed `range` → `attackRange`, `cooldown` → `attackCooldown`
+- **WeaponFactory.cs**: 
+  - Updated to use `WeaponFactoryConfig` for all weapon stats
+  - Fixed property names (`weaponType` → `type`, `Single` → `Projectile`)
+  - Flamethrower now has 30m range, 25-50 DPS
+- **PlayerWeaponSystem.cs**: Added throttle to `CheckForNearbyWeapons()` (60fps → ~6-7fps checks)
+- **ThirdPersonController.cs**: Removed redundant `TryGetComponent` call from Update (now only in Start)
+- **WorldHPBar.cs** & **DamagePopup.cs**: Now use `CameraCache.Main` instead of `Camera.main`
+- **WeaponPickup.cs**: Added shader caching to avoid repeated `Shader.Find()` calls
+- **InputManager.cs** & **PlayerController.cs**: Added `UnityEngine.InputSystem` using directive
+- **EnvironmentalInteractionManager.cs**: Updated to use non-deprecated `FindObjectsByType` overloads
+- **StylishDamageNumbers.cs** & **MinimapSystem.cs**: Replaced deprecated `FindFirstObjectByType` with `FindAnyObjectByType`
+- **ArenaAudioManager.cs**: Added stub methods `PlayFireball()`, `PlayPickup()`, `PlayMelee()` for compatibility
+- **FlamethrowerVFXController.cs**: Removed non-existent `emitFrom` property
+- **FlamethrowerDamageZone.cs**: Fixed `VFXManagerPooled` call (removed incorrect `.Instance` access)
+- **KatanaWeapon.cs**: Removed duplicate `IsEquipped` property
+- **EnhancedDamageNumbers.cs**: Fixed to use `TextMeshProUGUI` directly instead of non-existent `DamageNumberVisual`
+- **StylishDamageNumbers.cs**: Fixed pool type (`List<DamageNumberInstance>` → `Queue<GameObject>`)
+
+### Fixed
+- **Compilation Errors**:
+  - `CS0246`: WoW namespace not found → Changed to ArenaEnhanced
+  - `CS0117`: ArenaAudioManager missing methods → Added stub methods
+  - `CS1061`: WeaponData property names → Fixed all references
+  - `CS0103`: Keyboard not found → Added InputSystem using directive
+  - `CS0101`: Duplicate ArenaAudioManager class → Removed duplicate file
+  - `CS0101`: Duplicate DamageType enum → Removed from StylishDamageNumbers
+  - `CS0102`: Duplicate IsEquipped property → Removed from KatanaWeapon
+  - `CS0308`: Queue<T> not found → Added Collections.Generic using
+  - `CS0618`: Obsolete FindFirstObjectByType → Updated to FindAnyObjectByType
+- **FlamethrowerDamageZone.cs**: Added null checks for target transform
+
+### Fixed (Warnings)
+- **CS0618**: Removed obsolete `FindObjectsSortMode` parameter from `EnvironmentalInteractionManager.cs`
+- **CS0414**: Removed unused fields to eliminate warnings:
+  - `StylishDamageNumbers._useGenericPool`
+  - `FlamethrowerVFXController.heatIntensity`
+  - `ParticleEffectController.scaleWithParent`
+  - `EnhancedDamageNumbers.criticalScale`
+  - `FlamethrowerDamageZone.damageRadius`
+
+### Removed
+- Duplicate `ArenaAudioManager.cs` file in `Arena/` folder (kept version in `Managers/`)
+- Duplicate `DamageType` enum from `StylishDamageNumbers.cs`
+- Duplicate `IsEquipped` property from `KatanaWeapon.cs`
+
+---
+
 ## [Unreleased] — 2026-03-27
 
 ### Added

@@ -1,5 +1,4 @@
 using UnityEngine;
-using WoW.Armas;
 
 namespace ArenaEnhanced
 {

@@ -132,6 +132,13 @@ namespace ArenaEnhanced
                 56, "", Color.white, TextAlignmentOptions.Center);
             _gameOverText.fontStyle = FontStyles.Bold;
 
+            // Centrar el texto en la pantalla
+            var textRect = _gameOverText.GetComponent<RectTransform>();
+            textRect.anchorMin = new Vector2(0.5f, 0.5f);
+            textRect.anchorMax = new Vector2(0.5f, 0.5f);
+            textRect.pivot = new Vector2(0.5f, 0.5f);
+            textRect.anchoredPosition = Vector2.zero;
+
             _gameOverPanel.SetActive(false);
         }
 

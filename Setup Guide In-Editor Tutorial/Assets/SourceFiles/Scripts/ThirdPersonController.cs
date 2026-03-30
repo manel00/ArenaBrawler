@@ -168,8 +168,6 @@ public bool IsRespawning { get; set; } = false;
 
         private void Update()
         {
-            _hasAnimator = TryGetComponent(out _animator);
-
             JumpAndGravity();
             GroundedCheck();
             Move();

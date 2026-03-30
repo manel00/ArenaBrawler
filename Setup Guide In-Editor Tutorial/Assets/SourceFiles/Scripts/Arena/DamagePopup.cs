@@ -28,7 +28,11 @@ namespace ArenaEnhanced
 
         public void Setup(float damage)
         {
-            _textMesh.text = Mathf.Ceil(damage).ToString();
+            // Show damage with 1 decimal place for small values, rounded for larger
+            if (damage < 1f && damage > 0)
+                _textMesh.text = damage.ToString("F1");  // Shows "0.5"
+            else
+                _textMesh.text = Mathf.Round(damage).ToString();
             
             // Color based on damage amount (whiter for small, redder for large)
             _startColor = Color.Lerp(Color.white, Color.red, damage / 50f);
@@ -58,9 +62,9 @@ namespace ArenaEnhanced
             }
 
             // Face Camera
-            if (Camera.main != null)
+            if (CameraCache.Main != null)
             {
-                transform.rotation = Quaternion.LookRotation(transform.position - Camera.main.transform.position);
+                transform.rotation = Quaternion.LookRotation(transform.position - CameraCache.Main.transform.position);
             }
         }
     }

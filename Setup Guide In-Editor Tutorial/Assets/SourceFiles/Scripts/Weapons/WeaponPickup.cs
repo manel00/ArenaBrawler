@@ -1,7 +1,6 @@
-using ArenaEnhanced;
 using UnityEngine;
 
-namespace WoW.Armas
+namespace ArenaEnhanced
 {
     /// <summary>
     /// Componente para armas que están en el suelo y se pueden recoger
@@ -32,6 +31,16 @@ namespace WoW.Armas
         // Caché estático de materiales para evitar memory leaks
         private static readonly System.Collections.Generic.Dictionary<Color, Material> _materialCache = new System.Collections.Generic.Dictionary<Color, Material>();
         
+        // Cache de shader para evitar búsquedas repetidas
+        private static Shader _cachedLitShader;
+        
+        private static Shader GetLitShader()
+        {
+            if (_cachedLitShader == null)
+                _cachedLitShader = Shader.Find("Universal Render Pipeline/Lit");
+            return _cachedLitShader;
+        }
+        
         // Events
         public System.Action<WeaponData, int> OnWeaponPickedUp;
         
@@ -44,6 +53,11 @@ namespace WoW.Armas
             _currentAmmo = weaponData != null ? weaponData.DefaultAmmo : 0;
             spawnPosition = _originalPosition;
             spawnRotation = transform.rotation;
+            
+            // Verificar que tenemos los componentes necesarios para trigger detection
+            var collider = GetComponent<Collider>();
+            var rb = GetComponent<Rigidbody>();
+            Debug.Log($"[WeaponPickup] Awake - Collider: {collider != null} (isTrigger: {collider?.isTrigger}), Rigidbody: {rb != null} (kinematic: {rb?.isKinematic})");
         }
         
         private void Update()
@@ -168,7 +182,7 @@ namespace WoW.Armas
                 }
                 else if (data.weaponTexture != null)
                 {
-                    Material mat = new Material(Shader.Find("Universal Render Pipeline/Lit"));
+                    Material mat = new Material(GetLitShader());
                     mat.color = data.weaponColor;
                     mat.mainTexture = data.weaponTexture;
                     renderer.material = mat;
@@ -177,7 +191,7 @@ namespace WoW.Armas
                 else
                 {
                     // Crear material con color específico
-                    Material mat = new Material(Shader.Find("Universal Render Pipeline/Lit"));
+                    Material mat = new Material(GetLitShader());
                     mat.color = data.weaponColor;
                     renderer.material = mat;
                     Debug.Log($"[WeaponPickup] Applied color {data.weaponColor} to {data.weaponName}");
@@ -224,8 +238,20 @@ namespace WoW.Armas
             _materialCache[color] = newMat;
             return newMat;
         }
-        
+
         private void OnTriggerEnter(Collider other)
+        {
+            Debug.Log($"[WeaponPickup] OnTriggerEnter with {other.name} (tag: {other.tag}, layer: {other.gameObject.layer})");
+            TryPickup(other);
+        }
+        
+        private void OnTriggerStay(Collider other)
+        {
+            // Backup detection in case OnTriggerEnter missed
+            TryPickup(other);
+        }
+        
+        private void TryPickup(Collider other)
         {
             // Verificar si es un jugador
             var combatant = other.GetComponent<ArenaEnhanced.ArenaCombatant>();
@@ -236,11 +262,26 @@ namespace WoW.Armas
             
             if (combatant != null)
             {
-                // Notificar al sistema de inventario
+                Debug.Log($"[WeaponPickup] Found combatant {combatant.name}, checking weapon system...");
+                
+                // Solo recoger automáticamente si NO tiene arma equipada
                 var weaponSystem = combatant.GetComponent<PlayerWeaponSystem>();
                 if (weaponSystem != null)
                 {
-                    weaponSystem.TryPickUpWeapon(this);
+                    Debug.Log($"[WeaponPickup] WeaponSystem found. HasWeapon: {weaponSystem.HasWeapon}");
+                    if (!weaponSystem.HasWeapon)
+                    {
+                        Debug.Log($"[WeaponPickup] Auto-picking up {weaponData?.weaponName}");
+                        weaponSystem.TryPickUpWeapon(this);
+                    }
+                    else
+                    {
+                        Debug.Log("[WeaponPickup] Combatant already has weapon, skipping pickup");
+                    }
+                }
+                else
+                {
+                    Debug.LogWarning("[WeaponPickup] No PlayerWeaponSystem found on combatant!");
                 }
             }
         }

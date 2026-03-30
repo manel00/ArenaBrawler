@@ -1,11 +1,11 @@
 using UnityEngine;
 
-namespace WoW.Armas
+namespace ArenaEnhanced
 {
     /// <summary>
     /// ScriptableObject que define las propiedades de cada tipo de arma
     /// </summary>
-    [CreateAssetMenu(fileName = "NuevaArma", menuName = "WoW/Datos de Arma")]
+    [CreateAssetMenu(fileName = "NewWeapon", menuName = "ArenaEnhanced/Weapon Data")]
     public class WeaponData : ScriptableObject
     {
         [Header("Información")]
@@ -17,8 +17,8 @@ namespace WoW.Armas
         public Texture2D weaponTexture;
         
         [Header("Estadísticas Base")]
-        public float minDamage = 10f;
-        public float maxDamage = 25f;
+        public float minDamage = 1f;
+        public float maxDamage = 1f;
         public float attackRange = 20f;
         public float attackCooldown = 0.5f;
         public float projectileSpeed = 40f;
@@ -30,8 +30,8 @@ namespace WoW.Armas
         public float spreadAngle = 0f;
 
         [Header("Daño Continuo / Área")]
-        public float minDamagePerSecond = 5f;
-        public float maxDamagePerSecond = 25f;
+        public float minDamagePerSecond = 1f;
+        public float maxDamagePerSecond = 1f;
         public float splashRadius = 0f;
         public float splashMinDamage = 0f;
         public float splashMaxDamage = 0f;
@@ -39,6 +39,8 @@ namespace WoW.Armas
         [Header("Apariencia")]
         public Color weaponColor = Color.gray;
         public Vector3 weaponScale = Vector3.one;
+        public Vector3 groundScale = Vector3.one * 3f;
+        public Vector3 handScale = Vector3.one;
         public Vector3 rotationOffset = Vector3.zero;
         
         [Header("VFX")]
@@ -48,19 +50,29 @@ namespace WoW.Armas
         public bool UsesAmmo => !infiniteAmmo;
         public int DefaultAmmo => infiniteAmmo ? -1 : Mathf.Max(0, maxAmmo);
 
+        /// <summary>
+        /// Daño por segundo actual (auto-calculado)
+        /// </summary>
+        public float ActualDPS => RollDamagePerSecond();
+
+        /// <summary>
+        /// Daño promedio por disparo
+        /// </summary>
+        public float AverageDamage => (minDamage + maxDamage) / 2f;
+
         public float RollDamage()
         {
-            return Random.Range(minDamage, maxDamage);
+            return 0.5f; // Daño fijo de 0.5 por disparo
         }
 
         public float RollSplashDamage()
         {
-            return Random.Range(splashMinDamage, splashMaxDamage);
+            return 0.5f; // Daño fijo de 0.5 por splash
         }
 
         public float RollDamagePerSecond()
         {
-            return Random.Range(minDamagePerSecond, maxDamagePerSecond);
+            return 0.5f; // Daño fijo de 0.5 por segundo
         }
     }
     
@@ -69,7 +81,9 @@ namespace WoW.Armas
         Melee,
         Ranged,
         Thrown,
-        Flamethrower
+        Flamethrower,
+        Rifle,
+        Shotgun
     }
 
     public enum WeaponFireMode

@@ -61,7 +61,7 @@ namespace ArenaEnhanced
             Instance = this;
 
             // Crear canvas si no existe
-            Canvas canvas = FindFirstObjectByType<Canvas>();
+            Canvas canvas = FindAnyObjectByType<Canvas>();
             if (canvas == null)
             {
                 GameObject canvasGO = new GameObject("DamageNumbersCanvas");
@@ -76,11 +76,25 @@ namespace ArenaEnhanced
 
         private void InitializePool()
         {
-            for (int i = 0; i < poolSize; i++)
+            // Check if GenericObjectPool is available
+            if (GenericObjectPool.Instance != null && GenericObjectPool.Instance.HasPool("DamageNumbers"))
             {
-                GameObject go = CreateDamageNumberObject();
-                _damageNumberPool.Enqueue(go);
+                // Use generic pool - implementation here if needed
             }
+            else
+            {
+                // Fallback to local pool
+                for (int i = 0; i < poolSize; i++)
+                {
+                    CreatePooledDamageNumber();
+                }
+            }
+        }
+
+        private void CreatePooledDamageNumber()
+        {
+            GameObject go = CreateDamageNumberObject();
+            _damageNumberPool.Enqueue(go);
         }
 
         private GameObject CreateDamageNumberObject()
@@ -250,7 +264,7 @@ namespace ArenaEnhanced
             
             switch (type)
             {
-                case DamageType.Heal:
+                case DamageType.Healing:
                     return healColor;
                 case DamageType.Poison:
                     return poisonColor;
@@ -262,16 +276,5 @@ namespace ArenaEnhanced
                     return normalDamageColor;
             }
         }
-    }
-
-    public enum DamageType
-    {
-        Normal,
-        Critical,
-        Heal,
-        Poison,
-        Fire,
-        Ice,
-        Electric
     }
 }

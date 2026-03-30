@@ -1,6 +1,6 @@
 using UnityEngine;
 using TMPro;
-using WoW.Armas;
+using ArenaEnhanced;
 
 public class UpdateCollectibleCount : MonoBehaviour
 {
@@ -26,7 +26,7 @@ public class UpdateCollectibleCount : MonoBehaviour
     {
         // Count active weapon pickups
         int totalCollectibles = 0;
-        WoW.Armas.WeaponPickup[] pickups = FindObjectsByType<WoW.Armas.WeaponPickup>(FindObjectsInactive.Include);
+        WeaponPickup[] pickups = FindObjectsByType<WeaponPickup>(FindObjectsInactive.Include);
         foreach (var pickup in pickups)
         {
             if (pickup != null && pickup.gameObject.activeSelf)

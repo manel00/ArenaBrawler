@@ -121,33 +121,33 @@ namespace ArenaEnhanced
             shadow.effectDistance = new Vector2(8, -8);
             
             // TITULO
-            var titleGo = CreateText("ARENA BRAWLER", 68, new Color(1f, 0.85f, 0.2f), FontStyles.Bold);
+            var titleGo = CreateText("ARENA BRAWLER", 56, new Color(1f, 0.85f, 0.2f), FontStyles.Bold);
             titleGo.transform.SetParent(_mainPanel.transform, false);
             var titleRT = titleGo.GetComponent<RectTransform>();
             titleRT.anchorMin = new Vector2(0.5f, 1);
             titleRT.anchorMax = new Vector2(0.5f, 1);
             titleRT.pivot = new Vector2(0.5f, 1);
-            titleRT.anchoredPosition = new Vector2(0, -50);
-            titleRT.sizeDelta = new Vector2(550, 80);
+            titleRT.anchoredPosition = new Vector2(0, -40);
+            titleRT.sizeDelta = new Vector2(550, 70);
             
-            // Subtitulo
-            var subtitleGo = CreateText("Horde Survival", 32, new Color(0.7f, 0.7f, 0.8f), FontStyles.Normal);
+            // Subtitulo - más separado del título
+            var subtitleGo = CreateText("Horde Survival", 28, new Color(0.7f, 0.7f, 0.8f), FontStyles.Normal);
             subtitleGo.transform.SetParent(_mainPanel.transform, false);
             var subtitleRT = subtitleGo.GetComponent<RectTransform>();
             subtitleRT.anchorMin = new Vector2(0.5f, 1);
             subtitleRT.anchorMax = new Vector2(0.5f, 1);
             subtitleRT.pivot = new Vector2(0.5f, 1);
-            subtitleRT.anchoredPosition = new Vector2(0, -130);
-            subtitleRT.sizeDelta = new Vector2(550, 40);
+            subtitleRT.anchoredPosition = new Vector2(0, -115);
+            subtitleRT.sizeDelta = new Vector2(550, 35);
             
-            // Label Nombre
-            var nameLabel = CreateText("PLAYER NAME", 26, new Color(1f, 0.85f, 0.2f), FontStyles.Bold);
+            // Label Nombre - más separado
+            var nameLabel = CreateText("PLAYER NAME", 24, new Color(1f, 0.85f, 0.2f), FontStyles.Bold);
             nameLabel.transform.SetParent(_mainPanel.transform, false);
             var nameLabelRT = nameLabel.GetComponent<RectTransform>();
             nameLabelRT.anchorMin = new Vector2(0.5f, 1);
             nameLabelRT.anchorMax = new Vector2(0.5f, 1);
             nameLabelRT.pivot = new Vector2(0.5f, 1);
-            nameLabelRT.anchoredPosition = new Vector2(0, -220);
+            nameLabelRT.anchoredPosition = new Vector2(0, -180);
             nameLabelRT.sizeDelta = new Vector2(500, 30);
             
             // INPUT NOMBRE
@@ -157,18 +157,18 @@ namespace ArenaEnhanced
             inputRT.anchorMin = new Vector2(0.5f, 1);
             inputRT.anchorMax = new Vector2(0.5f, 1);
             inputRT.pivot = new Vector2(0.5f, 1);
-            inputRT.anchoredPosition = new Vector2(0, -265);
-            inputRT.sizeDelta = new Vector2(500, 55);
+            inputRT.anchoredPosition = new Vector2(0, -225);
+            inputRT.sizeDelta = new Vector2(500, 50);
             _nameInput = inputGo.GetComponent<TMP_InputField>();
             
-            // Label Bots
-            var botsLabel = CreateText("ALLIED BOTS", 26, new Color(1f, 0.85f, 0.2f), FontStyles.Bold);
+            // Label Bots - más separado
+            var botsLabel = CreateText("ALLIED BOTS", 24, new Color(1f, 0.85f, 0.2f), FontStyles.Bold);
             botsLabel.transform.SetParent(_mainPanel.transform, false);
             var botsLabelRT = botsLabel.GetComponent<RectTransform>();
             botsLabelRT.anchorMin = new Vector2(0.5f, 1);
             botsLabelRT.anchorMax = new Vector2(0.5f, 1);
             botsLabelRT.pivot = new Vector2(0.5f, 1);
-            botsLabelRT.anchoredPosition = new Vector2(0, -360);
+            botsLabelRT.anchoredPosition = new Vector2(0, -310);
             botsLabelRT.sizeDelta = new Vector2(500, 30);
             
             // BOTONES BOTS
@@ -214,7 +214,7 @@ namespace ArenaEnhanced
                 btnRT.anchorMin = new Vector2(0.5f, 1);
                 btnRT.anchorMax = new Vector2(0.5f, 1);
                 btnRT.pivot = new Vector2(0.5f, 1);
-                btnRT.anchoredPosition = new Vector2(xPos, -410);
+                btnRT.anchoredPosition = new Vector2(xPos, -355);
                 btnRT.sizeDelta = new Vector2(45, 45);
                 
                 var img = btnGo.AddComponent<Image>();

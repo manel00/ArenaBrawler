@@ -22,7 +22,7 @@ namespace ArenaEnhanced
 
         private void Start()
         {
-            _cam = Camera.main;
+            _cam = CameraCache.Main;
 
             // Shared materials (created once)
             if (_bgMat == null)
@@ -73,7 +73,7 @@ namespace ArenaEnhanced
             if (_barRoot == null) return;
 
             // Billboard: face camera
-            if (_cam == null) _cam = Camera.main;
+            if (_cam == null) _cam = CameraCache.Main;
             if (_cam != null)
                 _barRoot.rotation = Quaternion.LookRotation(_barRoot.position - _cam.transform.position);
 

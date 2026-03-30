@@ -81,12 +81,12 @@ namespace ArenaEnhanced
         {
             if (enableGrassInteraction)
             {
-                _grassPatches.AddRange(FindObjectsByType<InteractiveGrass>(FindObjectsSortMode.None));
+                _grassPatches.AddRange(FindObjectsByType<InteractiveGrass>());
             }
 
             if (enableWaterInteraction)
             {
-                _waterSurfaces.AddRange(FindObjectsByType<InteractiveWater>(FindObjectsSortMode.None));
+                _waterSurfaces.AddRange(FindObjectsByType<InteractiveWater>());
             }
 
 #if DEBUG

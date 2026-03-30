@@ -1,9 +1,6 @@
 using UnityEngine;
-using System.Collections;
-
-#if ENABLE_INPUT_SYSTEM
 using UnityEngine.InputSystem;
-#endif
+using System.Collections;
 
 namespace ArenaEnhanced
 {
@@ -45,7 +42,7 @@ namespace ArenaEnhanced
         private Rigidbody _rb;
         private Animator _animator;
         private ArenaCombatant _combatant;
-        private WoW.Armas.PlayerWeaponSystem _weaponSystem;
+        private PlayerWeaponSystem _weaponSystem;
         private Collider _col;
         
         private bool _isGrounded;
@@ -87,8 +84,51 @@ namespace ArenaEnhanced
             _rb.freezeRotation = true;
             _col = GetComponent<Collider>();
             _combatant = GetComponent<ArenaCombatant>();
-            _weaponSystem = GetComponent<WoW.Armas.PlayerWeaponSystem>();
+            _weaponSystem = GetComponent<PlayerWeaponSystem>();
             _animator = GetComponentInChildren<Animator>();
+            
+            // Asegurar que el jugador siempre tenga el KatanaWeapon
+            if (GetComponent<KatanaWeapon>() == null)
+                gameObject.AddComponent<KatanaWeapon>();
+        }
+        
+        private void OnEnable()
+        {
+            // Subscribe to InputManager events
+            InputManager.OnJumpPressed += Jump;
+            InputManager.OnDashPressed += OnDashPressed;
+            InputManager.OnDropWeaponPressed += DropCurrentWeapon;
+            InputManager.OnPickUpWeaponPressed += TryPickUpNearbyWeapon;
+            InputManager.OnAbilityPressed += OnAbilityPressed;
+            InputManager.OnWeaponAttackPressed += OnWeaponAttackPressed;
+        }
+
+        private void OnDisable()
+        {
+            // Unsubscribe from InputManager events
+            InputManager.OnJumpPressed -= Jump;
+            InputManager.OnDashPressed -= OnDashPressed;
+            InputManager.OnDropWeaponPressed -= DropCurrentWeapon;
+            InputManager.OnPickUpWeaponPressed -= TryPickUpNearbyWeapon;
+            InputManager.OnAbilityPressed -= OnAbilityPressed;
+            InputManager.OnWeaponAttackPressed -= OnWeaponAttackPressed;
+        }
+
+        private void OnDashPressed()
+        {
+            if (_canDash && _currentStamina >= dashStaminaCost)
+                PerformDash();
+        }
+
+        private void OnAbilityPressed(int abilityIndex)
+        {
+            if (abilityIndex == 5) return; // 5 es para katana, manejado por KatanaWeapon
+            TryCastAbility(abilityIndex);
+        }
+
+        private void OnWeaponAttackPressed(int weaponIndex)
+        {
+            TryCastAbility(4);
         }
         
         private void Start()
@@ -145,7 +185,7 @@ namespace ArenaEnhanced
         }
         
         /// <summary>
-        /// Procesa la entrada del jugador
+        /// Procesa la entrada del jugador (movimiento + habilidades como fallback)
         /// </summary>
         private void HandleInput()
         {
@@ -153,42 +193,53 @@ namespace ArenaEnhanced
             float vertical = 0f;
             
 #if ENABLE_INPUT_SYSTEM
-            // Nuevo Input System
+            // Nuevo Input System - solo movimiento
             if (Keyboard.current != null)
             {
                 if (Keyboard.current.aKey.isPressed || Keyboard.current.leftArrowKey.isPressed) horizontal = -1f;
                 if (Keyboard.current.dKey.isPressed || Keyboard.current.rightArrowKey.isPressed) horizontal = 1f;
                 if (Keyboard.current.wKey.isPressed || Keyboard.current.upArrowKey.isPressed) vertical = 1f;
                 if (Keyboard.current.sKey.isPressed || Keyboard.current.downArrowKey.isPressed) vertical = -1f;
-
-                if (Keyboard.current.spaceKey.wasPressedThisFrame) Jump();
-                if (Keyboard.current.qKey.wasPressedThisFrame) DropCurrentWeapon();
-                if (Keyboard.current.eKey.wasPressedThisFrame) TryPickUpNearbyWeapon();
-                if (Keyboard.current.fKey.wasPressedThisFrame && _canDash && _currentStamina >= dashStaminaCost) PerformDash();
             }
 #else
             // Input System antiguo
             horizontal = Input.GetAxis("Horizontal");
             vertical = Input.GetAxis("Vertical");
-
-            if (Input.GetKeyDown(KeyCode.Space)) Jump();
-            if (Input.GetKeyDown(KeyCode.Q)) DropCurrentWeapon();
-            if (Input.GetKeyDown(KeyCode.E)) TryPickUpNearbyWeapon();
-            if (Input.GetKeyDown(KeyCode.F) && _canDash && _currentStamina >= dashStaminaCost) PerformDash();
 #endif
-
-            int abilityIndex = GetPressedAbilityKey();
-            if (abilityIndex >= 0 && abilityIndex != 4)
-            {
-                TryCastAbility(abilityIndex);
-            }
-
-            if (IsWeaponAttackHeld())
-            {
-                TryCastAbility(4);
-            }
             
             _moveInput = new Vector3(horizontal, 0f, vertical).normalized;
+            
+            // Fallback para habilidades si InputManager no funciona
+            HandleAbilityInputFallback();
+        }
+        
+        /// <summary>
+        /// Maneja input de habilidades directamente como fallback
+        /// </summary>
+        private void HandleAbilityInputFallback()
+        {
+            // Habilidades 1-4 (excluyendo 5 que es katana)
+            if (Input.GetKeyDown(KeyCode.Alpha1)) TryCastAbility(1);
+            if (Input.GetKeyDown(KeyCode.Alpha2)) TryCastAbility(2);
+            if (Input.GetKeyDown(KeyCode.Alpha3)) TryCastAbility(3);
+            if (Input.GetKeyDown(KeyCode.Alpha4)) TryCastAbility(4);
+            if (Input.GetKeyDown(KeyCode.Alpha6)) TryCastAbility(6);
+            if (Input.GetKeyDown(KeyCode.Alpha7)) TryCastAbility(7);
+            if (Input.GetKeyDown(KeyCode.Alpha8)) TryCastAbility(8);
+            if (Input.GetKeyDown(KeyCode.Alpha9)) TryCastAbility(9);
+            
+            // Salto con Space (fallback)
+            if (Input.GetKeyDown(KeyCode.Space))
+            {
+                Jump();
+            }
+            
+            // Dash con F (fallback)
+            if (Input.GetKeyDown(KeyCode.F))
+            {
+                if (_canDash && _currentStamina >= dashStaminaCost)
+                    PerformDash();
+            }
         }
 
         private void PerformDash()
@@ -239,69 +290,48 @@ namespace ArenaEnhanced
             _iFramesCoroutine = null;
         }
 
-        private int GetPressedAbilityKey()
-        {
-#if ENABLE_INPUT_SYSTEM
-            var kb = Keyboard.current;
-            if (kb == null) return -1;
-
-            if (kb.digit0Key.wasPressedThisFrame || kb.numpad0Key.wasPressedThisFrame) return 0;
-            if (kb.digit1Key.wasPressedThisFrame || kb.numpad1Key.wasPressedThisFrame) return 1;
-            if (kb.digit2Key.wasPressedThisFrame || kb.numpad2Key.wasPressedThisFrame) return 2;
-            if (kb.digit3Key.wasPressedThisFrame || kb.numpad3Key.wasPressedThisFrame) return 3;
-            if (kb.digit4Key.wasPressedThisFrame || kb.numpad4Key.wasPressedThisFrame) return 4;
-            if (kb.digit5Key.wasPressedThisFrame || kb.numpad5Key.wasPressedThisFrame) return 5;
-            if (kb.digit6Key.wasPressedThisFrame || kb.numpad6Key.wasPressedThisFrame) return 6;
-            if (kb.digit7Key.wasPressedThisFrame || kb.numpad7Key.wasPressedThisFrame) return 7;
-            if (kb.digit8Key.wasPressedThisFrame || kb.numpad8Key.wasPressedThisFrame) return 8;
-            if (kb.digit9Key.wasPressedThisFrame || kb.numpad9Key.wasPressedThisFrame) return 9;
-#else
-            if (Input.GetKeyDown(KeyCode.Alpha0) || Input.GetKeyDown(KeyCode.Keypad0)) return 0;
-            if (Input.GetKeyDown(KeyCode.Alpha1) || Input.GetKeyDown(KeyCode.Keypad1)) return 1;
-            if (Input.GetKeyDown(KeyCode.Alpha2) || Input.GetKeyDown(KeyCode.Keypad2)) return 2;
-            if (Input.GetKeyDown(KeyCode.Alpha3) || Input.GetKeyDown(KeyCode.Keypad3)) return 3;
-            if (Input.GetKeyDown(KeyCode.Alpha4) || Input.GetKeyDown(KeyCode.Keypad4)) return 4;
-            if (Input.GetKeyDown(KeyCode.Alpha5) || Input.GetKeyDown(KeyCode.Keypad5)) return 5;
-            if (Input.GetKeyDown(KeyCode.Alpha6) || Input.GetKeyDown(KeyCode.Keypad6)) return 6;
-            if (Input.GetKeyDown(KeyCode.Alpha7) || Input.GetKeyDown(KeyCode.Keypad7)) return 7;
-            if (Input.GetKeyDown(KeyCode.Alpha8) || Input.GetKeyDown(KeyCode.Keypad8)) return 8;
-            if (Input.GetKeyDown(KeyCode.Alpha9) || Input.GetKeyDown(KeyCode.Keypad9)) return 9;
-#endif
-            return -1;
-        }
-
-        private bool IsWeaponAttackHeld()
-        {
-#if ENABLE_INPUT_SYSTEM
-            var kb = Keyboard.current;
-            if (kb == null) return false;
-            return kb.digit4Key.isPressed || kb.numpad4Key.isPressed;
-#else
-            return Input.GetKey(KeyCode.Alpha4) || Input.GetKey(KeyCode.Keypad4);
-#endif
-        }
-
         private void TryCastAbility(int index)
         {
-            if (index != 5 && Time.time < _nextActionTime) return;
-            if (_combatant == null || !_combatant.IsAlive) return;
+            Debug.Log($"[PlayerController] TryCastAbility called with index: {index}");
+            
+            // Cooldowns desactivados
+            // if (index != 5 && Time.time < _nextActionTime) 
+            // {
+            //     Debug.Log("[PlayerController] Ability blocked by cooldown");
+            //     return;
+            // }
+            
+            if (_combatant == null || !_combatant.IsAlive) 
+            {
+                Debug.Log("[PlayerController] Combatant null or dead");
+                return;
+            }
 
             bool success = false;
             switch (index)
             {
-                case 1: success = CastFireball(); break;
-                case 2: success = SummonDog(); break;
+                case 1: 
+                    Debug.Log("[PlayerController] Casting Fireball...");
+                    success = CastFireball(); 
+                    break;
+                case 2: 
+                    Debug.Log("[PlayerController] Summoning Dog...");
+                    success = SummonDog(); 
+                    break;
                 case 4: success = PerformWeaponAttack(); break;
                 case 5: success = PerformMelee(); break;
             }
 
-            if (success)
-            {
-                if (index != 4)
-                {
-                    _nextActionTime = Time.time + globalCooldown;
-                }
-            }
+            Debug.Log($"[PlayerController] Ability {index} execution result: {success}");
+            
+            // Cooldowns desactivados
+            // if (success)
+            // {
+            //     if (index != 4)
+            //     {
+            //         _nextActionTime = Time.time + globalCooldown;
+            //     }
+            // }
         }
 
         private bool CastFireball()

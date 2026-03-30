@@ -1,7 +1,6 @@
-using ArenaEnhanced;
 using UnityEngine;
 
-namespace WoW.Armas
+namespace ArenaEnhanced
 {
     /// <summary>
     /// Sistema de armas del jugador - gestiona equipar, usar y recoger armas
@@ -23,6 +22,17 @@ namespace WoW.Armas
         private WeaponPickup _nearbyWeapon;
         private GameObject _flameEffectInstance;
         private bool _isAttackingThisFrame;
+
+        // Sistema de lanzallamas masivo premium
+        private FlamethrowerVFXController _flamethrowerVFX;
+        private FlamethrowerDamageZone _flamethrowerDamage;
+        private bool _hasFlamethrowerComponents = false;
+        
+        // VFX de fuego del lanzallamas (usando assets existentes)
+        private GameObject _flamethrowerFireInstance;
+        private static readonly string FLAMETHROWER_VFX_PATH = "SourceFiles/VFX/VFX_FloatUp";
+        private static readonly Vector3 FLAMETHROWER_VFX_OFFSET = new Vector3(0, 0, 0.5f);
+        private static readonly Vector3 FLAMETHROWER_VFX_SCALE = new Vector3(2f, 2f, 2f);
 
         private const float HeldWeaponTargetMaxSize = 0.38f;
         
@@ -54,22 +64,73 @@ namespace WoW.Armas
             }
         }
         
+        // Throttle para chequeo de armas cercanas
+        private float _lastWeaponCheckTime = 0f;
+        private const float WEAPON_CHECK_INTERVAL = 0.15f; // 6-7 veces por segundo es suficiente
+
         private void Update()
         {
-            CheckForNearbyWeapons();
+            // Throttle weapon checks
+            if (Time.time - _lastWeaponCheckTime >= WEAPON_CHECK_INTERVAL)
+            {
+                CheckForNearbyWeapons();
+                _lastWeaponCheckTime = Time.time;
+            }
+            
+            // Handle weapon input (fallback if InputManager not working)
+            HandleWeaponInput();
+            
             UpdateContinuousVFX();
             _isAttackingThisFrame = false; // Reset cada frame
+        }
+        
+        /// <summary>
+        /// Maneja el input de ataque directamente como fallback
+        /// </summary>
+        private void HandleWeaponInput()
+        {
+            // Solo tecla 4 para atacar (sin clic de ratón)
+            if (Input.GetKey(KeyCode.Alpha4) || Input.GetKey(KeyCode.Keypad4))
+            {
+                Attack();
+            }
+            
+            // Tecla Q para soltar arma
+            if (Input.GetKeyDown(KeyCode.Q))
+            {
+                DropCurrentWeapon();
+            }
+            
+            // Tecla E para recoger arma
+            if (Input.GetKeyDown(KeyCode.E))
+            {
+                TryPickUpNearbyWeapon();
+            }
+        }
+        
+        /// <summary>
+        /// Intenta recoger un arma cercana
+        /// </summary>
+        public void TryPickUpNearbyWeapon()
+        {
+            if (HasWeapon || _nearbyWeapon == null) return;
+            
+            TryPickUpWeapon(_nearbyWeapon);
         }
 
         private void UpdateContinuousVFX()
         {
-            if (_flameEffectInstance == null) return;
-            
-            // Si no estamos atacando este frame, desactivar el efecto
+            // Si no estamos atacando este frame, desactivar efectos continuos
             if (!_isAttackingThisFrame)
             {
-                if (_flameEffectInstance.activeSelf)
+                // Legacy VFX
+                if (_flameEffectInstance != null && _flameEffectInstance.activeSelf)
+                {
                     _flameEffectInstance.SetActive(false);
+                }
+                
+                // Stop flamethrower premium VFX
+                StopFlamethrowerAttack();
             }
         }
         
@@ -121,13 +182,23 @@ namespace WoW.Armas
 #endif
                 return false;
             }
-            if (Time.time - _lastAttackTime < currentWeaponData.attackCooldown) 
+            
+            // Para armas continuas (lanzallamas), no bloquear por cooldown - solo mantener activo
+            if (currentWeaponData.fireMode == WeaponFireMode.Continuous)
             {
-#if DEBUG
-                Debug.Log($"[PlayerWeaponSystem] AttackTarget falló: Cooldown activo ({Time.time - _lastAttackTime:F2} < {currentWeaponData.attackCooldown:F2})");
-#endif
-                return false;
+                _lastAttackTime = Time.time;
+                Vector3 origin = GetAttackOrigin();
+                Vector3 baseDirection = GetAimDirection(origin, forcedTarget);
+                PerformContinuousAttack(origin, baseDirection);
+                return true;
             }
+            
+            // Cooldowns desactivados - disparo libre
+            // if (Time.time - _lastAttackTime < currentWeaponData.attackCooldown) 
+            // {
+            //     Debug.Log($"[PlayerWeaponSystem] AttackTarget falló: Cooldown activo");
+            //     return false;
+            // }
             if (currentWeaponData.UsesAmmo && currentAmmo == 0) 
             {
 #if DEBUG
@@ -142,24 +213,21 @@ namespace WoW.Armas
 #endif
             
             _lastAttackTime = Time.time;
-            Vector3 origin = GetAttackOrigin();
-            Vector3 baseDirection = GetAimDirection(origin, forcedTarget);
+            Vector3 origin2 = GetAttackOrigin();
+            Vector3 baseDirection2 = GetAimDirection(origin2, forcedTarget);
             
             PerformAttackVFX();
 
             switch (currentWeaponData.fireMode)
             {
                 case WeaponFireMode.Hitscan:
-                    PerformHitscanShot(origin, baseDirection);
-                    break;
-                case WeaponFireMode.Continuous:
-                    PerformContinuousAttack(origin, baseDirection);
+                    PerformHitscanShot(origin2, baseDirection2);
                     break;
                 default:
 #if DEBUG
                     Debug.Log("[PlayerWeaponSystem] Ejecutando PerformProjectileShot");
 #endif
-                    PerformProjectileShot(origin, baseDirection);
+                    PerformProjectileShot(origin2, baseDirection2);
                     break;
             }
 
@@ -226,22 +294,59 @@ namespace WoW.Armas
 
         private void PerformContinuousAttack(Vector3 origin, Vector3 baseDirection)
         {
-            _isAttackingThisFrame = true; // Indicar que estamos atacando
+            _isAttackingThisFrame = true;
             
-            // Gestionar VFX
-            if (currentWeaponData.attackVFX != null)
+            // Usar sistema de lanzallamas masivo premium si está disponible
+            if (IsFlamethrowerEquipped())
             {
-                if (_flameEffectInstance == null)
-                {
-                    _flameEffectInstance = Instantiate(currentWeaponData.attackVFX, weaponHoldPoint);
-                    _flameEffectInstance.transform.localPosition = new Vector3(0, 0, 0.8f); // Punta del arma
-                    _flameEffectInstance.transform.localRotation = Quaternion.Euler(0, 0, 0);
-                    _flameEffectInstance.transform.localScale = Vector3.one * 1.5f; // Más grande
-                }
+                EnsureFlamethrowerComponents();
                 
-                if (!_flameEffectInstance.activeSelf)
-                    _flameEffectInstance.SetActive(true);
+                if (_hasFlamethrowerComponents)
+                {
+                    // Activar VFX de fuego usando el controller
+                    if (_flamethrowerVFX != null)
+                    {
+                        if (!_flamethrowerVFX.IsFiring)
+                        {
+                            _flamethrowerVFX.StartFiring();
+                            Debug.Log("[PlayerWeaponSystem] Fire VFX started");
+                        }
+                    }
+                    else
+                    {
+                        Debug.LogError("[PlayerWeaponSystem] _flamethrowerVFX is null!");
+                    }
+                    
+                    // Activar zona de daño
+                    if (_flamethrowerDamage != null && !_flamethrowerDamage.IsActive)
+                    {
+                        _flamethrowerDamage.Activate();
+                    }
+                    
+                    return; // El daño se aplica por FlamethrowerDamageZone
+                }
             }
+            
+            // Fallback al sistema antiguo (para compatibilidad)
+            PerformLegacyContinuousAttack(origin, baseDirection);
+        }
+        
+        private void PerformLegacyContinuousAttack(Vector3 origin, Vector3 baseDirection)
+        {
+            // VFX legacy desactivado
+            // if (currentWeaponData.attackVFX != null)
+            // {
+            //     if (_flameEffectInstance == null)
+            //     {
+            //         _flameEffectInstance = Instantiate(currentWeaponData.attackVFX, weaponHoldPoint);
+            //         _flameEffectInstance.transform.localPosition = new Vector3(0, 0, 0.8f);
+            //         _flameEffectInstance.transform.localRotation = Quaternion.Euler(0, 0, 0);
+            //         _flameEffectInstance.transform.localScale = Vector3.one * 1.5f;
+            //     }
+            //     
+            //     if (!_flameEffectInstance.activeSelf)
+            //         _flameEffectInstance.SetActive(true);
+            // }
 
             float radius = Mathf.Max(1f, currentWeaponData.spreadAngle * 0.05f);
             RaycastHit[] hits = Physics.SphereCastAll(origin, radius, baseDirection, currentWeaponData.attackRange, ~0, QueryTriggerInteraction.Ignore);
@@ -253,6 +358,62 @@ namespace WoW.Armas
                 if (!IsValidTarget(combatant)) continue;
                 combatant.TakeDamage(tickDamage, _owner);
             }
+        }
+        
+        private bool IsFlamethrowerEquipped()
+        {
+            return currentWeaponData != null && currentWeaponData.type == WeaponType.Flamethrower;
+        }
+        
+        private void EnsureFlamethrowerComponents()
+        {
+            if (_hasFlamethrowerComponents) return;
+            
+            // Crear VFX Controller
+            if (_flamethrowerVFX == null)
+            {
+                GameObject vfxObj = new GameObject("FlamethrowerVFX");
+                vfxObj.transform.SetParent(weaponHoldPoint, false);
+                vfxObj.transform.localPosition = Vector3.zero;
+                _flamethrowerVFX = vfxObj.AddComponent<FlamethrowerVFXController>();
+            }
+            
+            // Crear Damage Zone
+            if (_flamethrowerDamage == null)
+            {
+                GameObject damageObj = new GameObject("FlamethrowerDamage");
+                damageObj.transform.SetParent(weaponHoldPoint, false);
+                _flamethrowerDamage = damageObj.AddComponent<FlamethrowerDamageZone>();
+                
+                // Configurar owner
+                _flamethrowerDamage.SetOwner(_owner);
+                
+                // Configurar referencia cruzada
+                if (currentWeaponData != null)
+                {
+                    // Usar RollDamagePerSecond para obtener el daño correcto (0.5)
+                    float dps = currentWeaponData.RollDamagePerSecond();
+                    _flamethrowerDamage.SetDamageParameters(
+                        dps,  // Daño por segundo
+                        30f,  // 30 metros de alcance
+                        12f   // 12 grados de ángulo - coincide con VFX
+                    );
+                    Debug.Log($"[PlayerWeaponSystem] Flamethrower damage configured: {dps} DPS");
+                }
+            }
+            
+            _hasFlamethrowerComponents = true;
+        }
+        
+        private void StopFlamethrowerAttack()
+        {
+            // Detener efectos de fuego
+            if (_flamethrowerVFX != null && _flamethrowerVFX.IsFiring)
+                _flamethrowerVFX.StopFiring();
+            
+            // Detener zona de daño
+            if (_flamethrowerDamage != null && _flamethrowerDamage.IsActive)
+                _flamethrowerDamage.Deactivate();
         }
 
         private Vector3 ApplySpread(Vector3 direction, float spreadAngle, int index, int total)
