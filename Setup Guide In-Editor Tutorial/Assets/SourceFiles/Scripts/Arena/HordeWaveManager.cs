@@ -15,7 +15,7 @@ namespace ArenaEnhanced
         public static HordeWaveManager Instance { get; private set; }
 
         [Header("Wave Configuration")]
-        public int[] normalEnemiesPerWave = { 20, 40, 60 };
+        public int[] normalEnemiesPerWave = { 80, 160, 240 };
         public int bossesPerWave = 3;
         public float[] bossSpawnTimes = { 30f, 60f, 90f };
 
@@ -102,14 +102,17 @@ namespace ArenaEnhanced
 #endif
             }
 
-            // Wait until all enemies defeated
+            // Refresh enemy tracking on minimap after spawns
+            yield return new WaitForSeconds(0.5f);
+            MinimapSystem.Instance?.RefreshEnemyTracking();
+
+            // Wait until all enemies defeated, then start next wave immediately (no delay)
             yield return new WaitUntil(AllEnemiesDefeated);
 
 #if DEBUG
-            Debug.Log($"[HordeWaveManager] Wave {waveIndex} complete!");
+            Debug.Log($"[HordeWaveManager] Wave {waveIndex} complete! Starting next wave...");
 #endif
             IsWaveActive = false;
-            yield return new WaitForSeconds(3f);
             StartNextWave();
         }
 
@@ -124,6 +127,10 @@ namespace ArenaEnhanced
                 spawned += count;
                 yield return new WaitForSeconds(0.4f);
             }
+            
+            // Refresh minimap after all normal enemies spawned
+            yield return new WaitForSeconds(0.5f);
+            MinimapSystem.Instance?.RefreshEnemyTracking();
         }
 
         private void SpawnOneNormalEnemy()

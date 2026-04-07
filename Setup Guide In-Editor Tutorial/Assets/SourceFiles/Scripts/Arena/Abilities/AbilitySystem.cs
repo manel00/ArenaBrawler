@@ -25,11 +25,22 @@ namespace ArenaEnhanced
         
         private void OnEnable()
         {
+            // No suscribirse si somos el jugador (PlayerController ya maneja habilidades directamente)
+            // Esto evita el bug de doble invocación de perros y otras habilidades
+            if (_playerController != null)
+            {
+                Debug.Log("[AbilitySystem] Disabled on Player - abilities handled by PlayerController");
+                return;
+            }
+            
             InputManager.OnAbilityPressed += OnAbilityPressed;
         }
         
         private void OnDisable()
         {
+            // Solo desuscribirse si no somos el jugador
+            if (_playerController != null) return;
+            
             InputManager.OnAbilityPressed -= OnAbilityPressed;
         }
         
@@ -112,6 +123,13 @@ namespace ArenaEnhanced
         
         private void OnAbilityPressed(int abilityIndex)
         {
+            // Si este objeto tiene un PlayerController, no procesar aquí
+            // porque el PlayerController maneja sus propias habilidades directamente
+            if (_playerController != null && _playerController.enabled)
+            {
+                return;
+            }
+            
             TryUseAbility(abilityIndex);
         }
     }

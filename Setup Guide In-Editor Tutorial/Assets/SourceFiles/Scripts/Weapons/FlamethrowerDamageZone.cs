@@ -39,6 +39,16 @@ namespace ArenaEnhanced
         [Tooltip("Máximo de enemigos afectados por tick")]
         [SerializeField] private int maxTargetsPerTick = 20;
         
+        [Tooltip("Capas de colisión para detectar enemigos (Everything = todos)")]
+        [SerializeField] private LayerMask enemyLayers = ~0; // Default: todo
+        
+        [Header("Collision Check")]
+        [Tooltip("Capas que bloquean el fuego (obstáculos)")]
+        [SerializeField] private LayerMask obstacleLayers = ~0; // Todo bloquea por defecto
+        
+        [Tooltip("Requerir línea de visión (raycast) para aplicar daño")]
+        [SerializeField] private bool requireLineOfSight = true;
+        
         // Internal state
         private bool _isActive = false;
         private float _lastDamageTime = 0f;
@@ -107,10 +117,11 @@ namespace ArenaEnhanced
             Vector3 origin = _ownerTransform.position + Vector3.up * 0.5f;
             Vector3 forward = _ownerTransform.forward;
             
-            // Usar SphereCastAll para detectar enemigos
-            int hitCount = Physics.OverlapSphereNonAlloc(origin, damageRange, _hitBuffer);
+            // Usar OverlapSphereNonAlloc con LayerMask para detectar enemigos
+            int hitCount = Physics.OverlapSphereNonAlloc(origin, damageRange, _hitBuffer, enemyLayers);
             
-            Debug.Log($"[FlamethrowerDamage] Scanning from {origin}, range={damageRange}, angle={coneAngle}, hits={hitCount}");
+            // DEBUG: Descomentar para debugging
+            // Debug.Log($"[FlamethrowerDamage] Scanning from {origin}, range={damageRange}, angle={coneAngle}, layerMask={enemyLayers.value}, hits={hitCount}");
             
             int targetsProcessed = 0;
             int validCombatants = 0;
@@ -140,14 +151,16 @@ namespace ArenaEnhanced
                 
                 if (!target.IsAlive)
                 {
-                    Debug.Log($"[FlamethrowerDamage] Target {target.name} is not alive");
+                    // DEBUG: Descomentar para debugging
+                    // Debug.Log($"[FlamethrowerDamage] Target {target.name} is not alive");
                     continue;
                 }
                 
                 // Verificar equipo (no dañar aliados)
                 if (_owner != null && target.teamId == _owner.teamId)
                 {
-                    Debug.Log($"[FlamethrowerDamage] Target {target.name} is same team ({target.teamId})");
+                    // DEBUG: Descomentar para debugging
+                    // Debug.Log($"[FlamethrowerDamage] Target {target.name} is same team ({target.teamId})");
                     continue;
                 }
                 
@@ -158,7 +171,8 @@ namespace ArenaEnhanced
                 // Dentro del rango
                 if (distance > damageRange)
                 {
-                    Debug.Log($"[FlamethrowerDamage] Target {target.name} out of range ({distance:F1} > {damageRange})");
+                    // DEBUG: Descomentar para debugging
+                    // Debug.Log($"[FlamethrowerDamage] Target {target.name} out of range ({distance:F1} > {damageRange})");
                     continue;
                 }
                 
@@ -166,8 +180,28 @@ namespace ArenaEnhanced
                 float angle = Vector3.Angle(forward, toTarget);
                 if (angle > coneAngle)
                 {
-                    Debug.Log($"[FlamethrowerDamage] Target {target.name} out of angle ({angle:F1}° > {coneAngle}°)");
+                    // DEBUG: Descomentar para debugging
+                    // Debug.Log($"[FlamethrowerDamage] Target {target.name} out of angle ({angle:F1}° > {coneAngle}°)");
                     continue;
+                }
+                
+                // VERIFICAR LÍNEA DE VISIÓN - El fuego debe poder llegar al objetivo
+                if (requireLineOfSight)
+                {
+                    Vector3 targetCenter = target.transform.position + Vector3.up * 1f; // Centro del cuerpo
+                    Vector3 rayDirection = targetCenter - origin;
+                    float rayDistance = rayDirection.magnitude;
+                    
+                    // Raycast para verificar obstáculos
+                    if (Physics.Raycast(origin, rayDirection.normalized, out RaycastHit hitInfo, rayDistance, obstacleLayers))
+                    {
+                        // Si el raycast golpea algo que no es el objetivo, hay un obstáculo
+                        if (hitInfo.collider.gameObject != target.gameObject && 
+                            !hitInfo.collider.transform.IsChildOf(target.transform))
+                        {
+                            continue;
+                        }
+                    }
                 }
                 
                 // Calcular daño
@@ -177,7 +211,8 @@ namespace ArenaEnhanced
                 float distanceMultiplier = 1f - (distance / damageRange) * 0.5f;
                 tickDamage *= distanceMultiplier;
                 
-                Debug.Log($"[FlamethrowerDamage] HIT! {target.name} at {distance:F1}m, angle={angle:F1}°, damage={tickDamage:F3}");
+                // DEBUG: Descomentar para debugging
+                // Debug.Log($"[FlamethrowerDamage] HIT! {target.name} at {distance:F1}m, angle={angle:F1}°, damage={tickDamage:F3}");
                 
                 // Aplicar daño
                 target.TakeDamage(tickDamage, _owner != null ? _owner.gameObject : gameObject);
@@ -193,7 +228,8 @@ namespace ArenaEnhanced
             
             if (targetsProcessed == 0)
             {
-                Debug.Log($"[FlamethrowerDamage] No targets hit. Total colliders: {hitCount}, valid combatants: {validCombatants}");
+                // DEBUG: Descomentar para debugging
+                // Debug.Log($"[FlamethrowerDamage] No targets hit. Total colliders: {hitCount}, valid combatants: {validCombatants}");
             }
         }
         

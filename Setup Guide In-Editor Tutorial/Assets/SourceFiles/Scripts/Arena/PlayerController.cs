@@ -4,31 +4,17 @@ using System.Collections;
 
 namespace ArenaEnhanced
 {
-    /// <summary>
-    /// Controlador del jugador para la arena
-    /// </summary>
     [RequireComponent(typeof(Rigidbody))]
     public class PlayerController : MonoBehaviour
     {
         [Header("Movimiento")]
-        [Tooltip("Velocidad de movimiento del jugador")]
-        [SerializeField] public float moveSpeed = 12.5f;
-        
-        [Tooltip("Velocidad de rotación")]
+        [SerializeField] public float moveSpeed = 25f;
         [SerializeField] private float rotationSpeed = 10f;
-        
-        [Tooltip("Fuerza del salto")]
         [SerializeField] public float jumpForce = 12.5f;
-        
-        [Tooltip("Multiplicador de gravedad")]
         [SerializeField] private float gravityMultiplier = 12.5f;
         
         [Header("Ground Check")]
-        [SerializeField] private LayerMask groundLayer = ~0;
-        [SerializeField] private float groundCheckDistance = 0.2f;
-        
-        [Header("Tab-Target & GCD")]
-        [SerializeField] private float globalCooldown = 1.0f;
+        [SerializeField] private LayerMask groundLayer;
         
         [Header("Dash")]
         [SerializeField] private float dashSpeed = 20f;
@@ -39,6 +25,10 @@ namespace ArenaEnhanced
         [SerializeField] private float maxStamina = 100f;
         [SerializeField] private float staminaRegenRate = 20f;
         
+        [Header("Kill Plane - Caída")]
+        [SerializeField] private float arenaSurfaceY = 0f;
+        [SerializeField] private float fallDeathThreshold = 2f;
+        
         private Rigidbody _rb;
         private Animator _animator;
         private ArenaCombatant _combatant;
@@ -46,20 +36,23 @@ namespace ArenaEnhanced
         private Collider _col;
         
         private bool _isGrounded;
+        private bool _wasGrounded;
         private Vector3 _moveInput;
         private float _nextActionTime;
         
-        // Dash system
         private float _currentStamina;
         private float _lastDashTime = -999f;
         private bool _canDash = true;
         private Coroutine _dashCoroutine;
         private Coroutine _iFramesCoroutine;
         
-        // Raycast buffer for ground check
-        private readonly RaycastHit[] _groundHitBuffer = new RaycastHit[1];
+        // OPTIMIZACIÓN: Buffer aumentado para SphereCastNonAlloc (más preciso que Raycast)
+        private readonly RaycastHit[] _groundHitBuffer = new RaycastHit[3];
         
-        // Animator parameter hashes for performance
+        // Parámetros de SphereCast para mejor detección de suelo
+        private const float GroundCheckRadius = 0.3f;
+        private const float GroundCheckExtraDistance = 0.15f;
+        
         private static readonly int AnimIDSpeed = Animator.StringToHash("Speed");
         private static readonly int AnimIDGrounded = Animator.StringToHash("Grounded");
         private static readonly int AnimIDJump = Animator.StringToHash("Jump");
@@ -67,11 +60,11 @@ namespace ArenaEnhanced
         private static readonly int AnimIDMotionSpeed = Animator.StringToHash("MotionSpeed");
         private static readonly int AnimIDDash = Animator.StringToHash("Dash");
         
-        // Melee sequence tracking
-        private int _nextPunchSide = 0; // 0: Left, 1: Right
-        private int _nextKickSide = 2;  // 2: Left, 3: Right
+        // Nuevos parámetros para animaciones One Hand Up
+        private static readonly int AnimIDIsWeaponDrawn = Animator.StringToHash("IsWeaponDrawn");
+        private static readonly int AnimIDAttack = Animator.StringToHash("Attack");
+        private static readonly int AnimIDAttackType = Animator.StringToHash("AttackType");
         
-        // Public accessors for HUD (read-only)
         public float GetStaminaPercentage() => _currentStamina / maxStamina;
         public float GetDashCooldownPercentage() => _canDash ? 0f : Mathf.Clamp01((Time.time - _lastDashTime) / dashCooldown);
         public int GetCurrentStamina() => Mathf.RoundToInt(_currentStamina);
@@ -80,21 +73,74 @@ namespace ArenaEnhanced
         
         private void Awake()
         {
-            _rb = GetComponent<Rigidbody>();
-            _rb.freezeRotation = true;
-            _col = GetComponent<Collider>();
-            _combatant = GetComponent<ArenaCombatant>();
-            _weaponSystem = GetComponent<PlayerWeaponSystem>();
-            _animator = GetComponentInChildren<Animator>();
+            // Inicializar capas de física
+            PhysicsLayers.Initialize();
             
-            // Asegurar que el jugador siempre tenga el KatanaWeapon
+            // Si no se asignó groundLayer, usar el cacheado de PhysicsLayers
+            if (groundLayer == 0)
+                groundLayer = PhysicsLayers.GroundMask | PhysicsLayers.EnvironmentMask;
+            
+            _rb = GetComponent<Rigidbody>();
+            if (_rb == null)
+            {
+                _rb = gameObject.AddComponent<Rigidbody>();
+                Debug.Log("[PlayerController] Added missing Rigidbody");
+            }
+            _rb.freezeRotation = true;
+            
+            _col = GetComponent<Collider>();
+            if (_col == null)
+            {
+                _col = gameObject.AddComponent<CapsuleCollider>();
+                Debug.Log("[PlayerController] Added missing CapsuleCollider");
+            }
+            
+            _combatant = GetComponent<ArenaCombatant>();
+            if (_combatant == null)
+            {
+                _combatant = gameObject.AddComponent<ArenaCombatant>();
+                _combatant.teamId = 1;
+                _combatant.displayName = "Player";
+            }
+            
+            _weaponSystem = GetComponent<PlayerWeaponSystem>();
+            if (_weaponSystem == null)
+            {
+                _weaponSystem = gameObject.AddComponent<PlayerWeaponSystem>();
+            }
+            
+            // Buscar el Animator en el modelo hijo
+            _animator = GetComponentInChildren<Animator>(true);
+            if (_animator == null)
+            {
+                Debug.LogWarning("[PlayerController] No Animator found in children!");
+            }
+            else
+            {
+                Debug.Log("[PlayerController] Animator found: " + _animator.gameObject.name);
+            }
+            
+            // Asegurar que el Animator esté habilitado
+            if (_animator != null && !_animator.enabled)
+            {
+                _animator.enabled = true;
+                Debug.Log("[PlayerController] Animator enabled");
+            }
+            
             if (GetComponent<KatanaWeapon>() == null)
                 gameObject.AddComponent<KatanaWeapon>();
+
+            if (GetComponent<GrenadeSystem>() == null)
+                gameObject.AddComponent<GrenadeSystem>();
+                
+            if (!CompareTag("Player"))
+            {
+                tag = "Player";
+            }
         }
         
         private void OnEnable()
         {
-            // Subscribe to InputManager events
             InputManager.OnJumpPressed += Jump;
             InputManager.OnDashPressed += OnDashPressed;
             InputManager.OnDropWeaponPressed += DropCurrentWeapon;
@@ -105,7 +151,6 @@ namespace ArenaEnhanced
 
         private void OnDisable()
         {
-            // Unsubscribe from InputManager events
             InputManager.OnJumpPressed -= Jump;
             InputManager.OnDashPressed -= OnDashPressed;
             InputManager.OnDropWeaponPressed -= DropCurrentWeapon;
@@ -122,7 +167,6 @@ namespace ArenaEnhanced
 
         private void OnAbilityPressed(int abilityIndex)
         {
-            if (abilityIndex == 5) return; // 5 es para katana, manejado por KatanaWeapon
             TryCastAbility(abilityIndex);
         }
 
@@ -133,7 +177,6 @@ namespace ArenaEnhanced
         
         private void Start()
         {
-            Debug.Log($"[PlayerController] Started for {gameObject.name}. Animator found: {_animator != null}");
             _currentStamina = maxStamina;
         }
         
@@ -144,6 +187,7 @@ namespace ArenaEnhanced
             RegenerateStamina();
             HandleInput();
             CheckGround();
+            CheckFallDeath();
             UpdateAnimator();
         }
         
@@ -157,15 +201,10 @@ namespace ArenaEnhanced
         
         private void OnDestroy()
         {
-            // Clean up coroutines
             if (_dashCoroutine != null)
-            {
                 StopCoroutine(_dashCoroutine);
-            }
             if (_iFramesCoroutine != null)
-            {
                 StopCoroutine(_iFramesCoroutine);
-            }
         }
 
         private void RegenerateStamina()
@@ -184,64 +223,28 @@ namespace ArenaEnhanced
             }
         }
         
-        /// <summary>
-        /// Procesa la entrada del jugador (movimiento + habilidades como fallback)
-        /// </summary>
         private void HandleInput()
         {
             float horizontal = 0f;
             float vertical = 0f;
             
 #if ENABLE_INPUT_SYSTEM
-            // Nuevo Input System - solo movimiento
-            if (Keyboard.current != null)
+            var keyboard = Keyboard.current;
+            if (keyboard != null)
             {
-                if (Keyboard.current.aKey.isPressed || Keyboard.current.leftArrowKey.isPressed) horizontal = -1f;
-                if (Keyboard.current.dKey.isPressed || Keyboard.current.rightArrowKey.isPressed) horizontal = 1f;
-                if (Keyboard.current.wKey.isPressed || Keyboard.current.upArrowKey.isPressed) vertical = 1f;
-                if (Keyboard.current.sKey.isPressed || Keyboard.current.downArrowKey.isPressed) vertical = -1f;
+                if (keyboard.aKey.isPressed || keyboard.leftArrowKey.isPressed) horizontal = -1f;
+                if (keyboard.dKey.isPressed || keyboard.rightArrowKey.isPressed) horizontal = 1f;
+                if (keyboard.wKey.isPressed || keyboard.upArrowKey.isPressed) vertical = 1f;
+                if (keyboard.sKey.isPressed || keyboard.downArrowKey.isPressed) vertical = -1f;
             }
 #else
-            // Input System antiguo
             horizontal = Input.GetAxis("Horizontal");
             vertical = Input.GetAxis("Vertical");
 #endif
             
             _moveInput = new Vector3(horizontal, 0f, vertical).normalized;
-            
-            // Fallback para habilidades si InputManager no funciona
-            HandleAbilityInputFallback();
         }
         
-        /// <summary>
-        /// Maneja input de habilidades directamente como fallback
-        /// </summary>
-        private void HandleAbilityInputFallback()
-        {
-            // Habilidades 1-4 (excluyendo 5 que es katana)
-            if (Input.GetKeyDown(KeyCode.Alpha1)) TryCastAbility(1);
-            if (Input.GetKeyDown(KeyCode.Alpha2)) TryCastAbility(2);
-            if (Input.GetKeyDown(KeyCode.Alpha3)) TryCastAbility(3);
-            if (Input.GetKeyDown(KeyCode.Alpha4)) TryCastAbility(4);
-            if (Input.GetKeyDown(KeyCode.Alpha6)) TryCastAbility(6);
-            if (Input.GetKeyDown(KeyCode.Alpha7)) TryCastAbility(7);
-            if (Input.GetKeyDown(KeyCode.Alpha8)) TryCastAbility(8);
-            if (Input.GetKeyDown(KeyCode.Alpha9)) TryCastAbility(9);
-            
-            // Salto con Space (fallback)
-            if (Input.GetKeyDown(KeyCode.Space))
-            {
-                Jump();
-            }
-            
-            // Dash con F (fallback)
-            if (Input.GetKeyDown(KeyCode.F))
-            {
-                if (_canDash && _currentStamina >= dashStaminaCost)
-                    PerformDash();
-            }
-        }
-
         private void PerformDash()
         {
             _canDash = false;
@@ -249,9 +252,7 @@ namespace ArenaEnhanced
             _lastDashTime = Time.time;
             
             if (_animator != null)
-            {
                 _animator.SetTrigger(AnimIDDash);
-            }
             
             _dashCoroutine = StartCoroutine(DashRoutine());
         }
@@ -261,7 +262,6 @@ namespace ArenaEnhanced
             float dashTime = dashDistance / dashSpeed;
             Vector3 dashDirection = transform.forward;
             
-            // I-frames
             _iFramesCoroutine = StartCoroutine(DashIFrames());
             
             while (dashTime > 0)
@@ -271,8 +271,6 @@ namespace ArenaEnhanced
                 yield return null;
             }
             
-            
-            // Cooldown
             yield return new WaitForSeconds(dashCooldown);
             _canDash = true;
             _dashCoroutine = null;
@@ -280,9 +278,9 @@ namespace ArenaEnhanced
 
         private IEnumerator DashIFrames()
         {
-            // Disable collision with enemies during i-frames
             int originalLayer = gameObject.layer;
-            gameObject.layer = LayerMask.NameToLayer("Invincible");
+            // OPTIMIZACIÓN: Usar PhysicsLayers cacheado
+            gameObject.layer = PhysicsLayers.Invincible;
             
             yield return new WaitForSeconds(dashIFramesDuration);
             
@@ -292,84 +290,62 @@ namespace ArenaEnhanced
 
         private void TryCastAbility(int index)
         {
-            Debug.Log($"[PlayerController] TryCastAbility called with index: {index}");
-            
-            // Cooldowns desactivados
-            // if (index != 5 && Time.time < _nextActionTime) 
-            // {
-            //     Debug.Log("[PlayerController] Ability blocked by cooldown");
-            //     return;
-            // }
-            
             if (_combatant == null || !_combatant.IsAlive) 
-            {
-                Debug.Log("[PlayerController] Combatant null or dead");
                 return;
-            }
 
             bool success = false;
             switch (index)
             {
                 case 1: 
-                    Debug.Log("[PlayerController] Casting Fireball...");
                     success = CastFireball(); 
                     break;
                 case 2: 
-                    Debug.Log("[PlayerController] Summoning Dog...");
                     success = SummonDog(); 
                     break;
-                case 4: success = PerformWeaponAttack(); break;
-                case 5: success = PerformMelee(); break;
+                case 3: 
+                    // Katana attack handled by KatanaWeapon component via InputManager
+                    // No fallback melee - katana must be equipped via KatanaWeapon
+                    break;
+                case 4: 
+                    success = PerformWeaponAttack(); 
+                    break;
+                case 6:
+                    success = ThrowGrenade();
+                    break;
             }
-
-            Debug.Log($"[PlayerController] Ability {index} execution result: {success}");
-            
-            // Cooldowns desactivados
-            // if (success)
-            // {
-            //     if (index != 4)
-            //     {
-            //         _nextActionTime = Time.time + globalCooldown;
-            //     }
-            // }
         }
 
         private bool CastFireball()
         {
+            // Dirección exactamente hacia adelante del personaje
             Vector3 direction = transform.forward;
             direction.y = 0;
             direction.Normalize();
-
-            RuntimeSpawner.SpawnFireball(_combatant, transform.position + transform.forward * 1.5f + Vector3.up, direction, 35f);
+            
+            // Spawn 1.5m ENFRENTE del personaje, a la altura del pecho
+            Vector3 spawnPos = transform.position + direction * 1.5f + Vector3.up * 1.1f;
+            
+            Debug.Log($"[CastFireball] Player at: {transform.position}, Spawn 1.5m FRONT at: {spawnPos}, Direction: {direction}");
+            
+            RuntimeSpawner.SpawnFireball(_combatant, spawnPos, direction, 20f);
+            
             return true;
         }
 
         private bool SummonDog()
         {
-            RuntimeSpawner.SpawnDog(_combatant, transform.position + transform.forward * 2f);
-            return true;
-        }
-
-        private bool PerformMelee()
-        {
-            // Si la katana está equipada, no ejecutar melee (la katana tiene su propio sistema)
-            var katana = GetComponent<KatanaWeapon>();
-            if (katana != null && katana.IsEquipped) return false;
+            // Verificar límite de perros
+            if (!DogController.CanSpawnDog(_combatant))
+            {
+#if DEBUG
+                Debug.Log($"[PlayerController] Límite de perros alcanzado ({DogController.GetDogCount(_combatant)}/5)");
+#endif
+                // Mostrar feedback visual opcional aquí
+                return false;
+            }
             
-            // Randomly choose between Punch and Kick category, but alternate sides within each category
-            int attackType;
-            if (Random.value < 0.5f)
-            {
-                attackType = _nextPunchSide;
-                _nextPunchSide = 1 - _nextPunchSide; // Alternates 0 and 1
-            }
-            else
-            {
-                attackType = _nextKickSide;
-                _nextKickSide = 5 - _nextKickSide; // Alternates 2 and 3
-            }
-
-            RuntimeSpawner.SpawnMelee(_combatant, transform.position, transform.forward);
+            Vector3 spawnPos = transform.position + transform.forward * 2f;
+            RuntimeSpawner.SpawnDog(_combatant, spawnPos);
             return true;
         }
 
@@ -379,39 +355,39 @@ namespace ArenaEnhanced
             return _weaponSystem.Attack();
         }
 
+        private bool ThrowGrenade()
+        {
+            var grenadeSystem = GetComponent<GrenadeSystem>();
+            if (grenadeSystem == null) return false;
+            
+            // El GrenadeSystem maneja su propio input de carga/lanzamiento
+            // Esta función es llamada por el InputManager para iniciar la carga
+            // La lógica real está en GrenadeSystem.Update()
+            return true;
+        }
+
         private void DropCurrentWeapon()
         {
             if (_weaponSystem == null || !_weaponSystem.HasWeapon) return;
             _weaponSystem.DropCurrentWeapon();
-            Debug.Log("[PlayerController] Weapon dropped with Q key.");
         }
 
         private void TryPickUpNearbyWeapon()
         {
             if (_weaponSystem == null || _weaponSystem.HasWeapon) return;
             if (_weaponSystem.NearbyWeapon != null)
-            {
                 _weaponSystem.TryPickUpWeapon(_weaponSystem.NearbyWeapon);
-                Debug.Log($"[PlayerController] Weapon picked up with E key: {_weaponSystem.currentWeaponData?.weaponName}");
-            }
         }
         
-        /// <summary>
-        /// Mueve al jugador
-        /// </summary>
         private void Move()
         {
-            // Rotación: Girar sobre el eje Y basado en la entrada horizontal
             if (Mathf.Abs(_moveInput.x) > 0.01f)
             {
-                // Un multiplicador más alto para que el giro se sienta natural y rápido
                 float turn = _moveInput.x * rotationSpeed * Time.fixedDeltaTime * 20f;
                 Quaternion deltaRotation = Quaternion.Euler(0, turn, 0);
                 _rb.MoveRotation(_rb.rotation * deltaRotation);
             }
 
-            // Movimiento: Avanzar/Retroceder basado en la entrada vertical (en espacio local)
-            // Usamos transform.forward para que el personaje siempre se mueva hacia donde mira
             Vector3 forward = transform.forward;
             forward.y = 0;
             forward.Normalize();
@@ -424,14 +400,21 @@ namespace ArenaEnhanced
 
         private void UpdateAnimator()
         {
-            if (_animator == null) return;
+            if (_animator == null) 
+            {
+                // Intentar encontrar el animator de nuevo
+                _animator = GetComponentInChildren<Animator>(true);
+                if (_animator == null) return;
+            }
 
-            // Calculamos la velocidad actual en el plano horizontal
             float currentHorizontalSpeed = new Vector3(_rb.linearVelocity.x, 0.0f, _rb.linearVelocity.z).magnitude;
-
+            
             _animator.SetFloat(AnimIDSpeed, currentHorizontalSpeed);
             _animator.SetFloat(AnimIDMotionSpeed, 1f);
             _animator.SetBool(AnimIDGrounded, _isGrounded);
+            
+            // Asegurar que IsWeaponDrawn esté activo para las animaciones de espada
+            _animator.SetBool(AnimIDIsWeaponDrawn, true);
             
             if (_isGrounded)
             {
@@ -446,14 +429,40 @@ namespace ArenaEnhanced
         
         private void CheckGround()
         {
-            Vector3 origin = _col != null ? _col.bounds.center : transform.position;
-            float distance = _col != null ? _col.bounds.extents.y + 0.1f : groundCheckDistance;
+            if (_col == null) 
+            {
+                _isGrounded = false;
+                return;
+            }
             
-            // Use NonAlloc version to avoid GC allocations
-            int hitCount = Physics.RaycastNonAlloc(origin, Vector3.down, _groundHitBuffer, distance, groundLayer, QueryTriggerInteraction.Ignore);
-            _isGrounded = hitCount > 0;
+            // Raycast desde los pies del personaje hacia abajo
+            Vector3 rayOrigin = _col.bounds.center - Vector3.up * (_col.bounds.extents.y - 0.05f);
+            float rayLength = 0.35f;
+            
+            RaycastHit hit;
+            _isGrounded = Physics.Raycast(rayOrigin, Vector3.down, out hit, rayLength, groundLayer, QueryTriggerInteraction.Ignore);
+            
+            // DEBUG - solo cuando cambia estado para evitar spam
+            if (_isGrounded != _wasGrounded)
+            {
+                Debug.DrawRay(rayOrigin, Vector3.down * rayLength, _isGrounded ? Color.green : Color.red, 0.5f);
+                if (_isGrounded)
+                    Debug.Log($"[CheckGround] Grounded! Hit: {hit.collider.name}, Layer: {LayerMask.LayerToName(hit.collider.gameObject.layer)}");
+            }
+            _wasGrounded = _isGrounded;
         }
         
+        private void CheckFallDeath()
+        {
+            if (transform.position.y < arenaSurfaceY - fallDeathThreshold)
+            {
+                if (_combatant != null && _combatant.IsAlive)
+                {
+                    _combatant.TakeDamage(_combatant.CurrentHealth, (GameObject)null);
+                }
+            }
+        }
+
         private void ResetMeleeTrigger()
         {
             if (_animator != null) _animator.SetFloat("AttackTrigger", 0.0f);
@@ -473,9 +482,7 @@ namespace ArenaEnhanced
                 _isGrounded = false; 
                 
                 if (_animator != null)
-                {
                     _animator.SetBool(AnimIDJump, true);
-                }
             }
         }
     }

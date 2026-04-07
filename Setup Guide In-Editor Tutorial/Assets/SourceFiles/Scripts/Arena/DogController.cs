@@ -1,3 +1,4 @@
+using System.Collections.Generic;
 using UnityEngine;
 
 namespace ArenaEnhanced
@@ -9,13 +10,19 @@ namespace ArenaEnhanced
     [RequireComponent(typeof(ArenaCombatant))]
     public class DogController : MonoBehaviour
     {
+        // Límite de perros por owner
+        private static readonly Dictionary<ArenaCombatant, HashSet<DogController>> _dogsByOwner = new Dictionary<ArenaCombatant, HashSet<DogController>>();
+        private const int MAX_DOGS_PER_OWNER = 5;
+        
         public ArenaCombatant owner;
         public float moveSpeed = 6.5f;
         public float acceleration = 35f;
         public float detectDistance = 20f; 
         public float attackRange = 1.3f;
         public float attackCooldown = 1.5f;
-        public float lifeDuration = 60f;
+        public float lifeDuration = 5f;
+
+        private GameBalanceConfig _balanceConfig;
 
         private ArenaCombatant _combatant;
         private Rigidbody _rb;
@@ -29,10 +36,95 @@ namespace ArenaEnhanced
             _combatant = GetComponent<ArenaCombatant>();
             _rb = GetComponent<Rigidbody>();
             
+            // Load balance config
+            _balanceConfig = Resources.Load<GameBalanceConfig>("Configs/GameBalanceConfig");
+            if (_balanceConfig != null)
+            {
+                _combatant.maxHp = _balanceConfig.dogMaxHealth;
+                _combatant.hp = _balanceConfig.dogMaxHealth;
+                lifeDuration = _balanceConfig.dogDuration;
+                Debug.Log("[DogController] Loaded balance config values");
+            }
+            
             // Configuración física básica
             _rb.useGravity = true;
             _rb.isKinematic = false;
             _rb.constraints = RigidbodyConstraints.FreezeRotationX | RigidbodyConstraints.FreezeRotationZ;
+            
+            // Registrar este perro en el tracking
+            RegisterDog();
+        }
+        
+        private void OnDestroy()
+        {
+            // Desregistrar cuando se destruya
+            UnregisterDog();
+        }
+        
+        /// <summary>
+        /// Registra este perro en el tracking del owner
+        /// </summary>
+        public void RegisterDog()
+        {
+            if (owner == null) return;
+            
+            if (!_dogsByOwner.TryGetValue(owner, out var dogSet))
+            {
+                dogSet = new HashSet<DogController>();
+                _dogsByOwner[owner] = dogSet;
+            }
+            dogSet.Add(this);
+        }
+        
+        /// <summary>
+        /// Desregistra este perro del tracking
+        /// </summary>
+        private void UnregisterDog()
+        {
+            if (owner == null) return;
+            
+            if (_dogsByOwner.TryGetValue(owner, out var dogSet))
+            {
+                dogSet.Remove(this);
+                if (dogSet.Count == 0)
+                {
+                    _dogsByOwner.Remove(owner);
+                }
+            }
+        }
+        
+        /// <summary>
+        /// Verifica si el owner puede spawnear más perros
+        /// </summary>
+        public static bool CanSpawnDog(ArenaCombatant owner)
+        {
+            if (owner == null) return true;
+            
+            if (!_dogsByOwner.TryGetValue(owner, out var dogSet))
+            {
+                return true; // No tiene perros aún
+            }
+            
+            // Limpiar nulls
+            dogSet.RemoveWhere(d => d == null);
+            
+            return dogSet.Count < MAX_DOGS_PER_OWNER;
+        }
+        
+        /// <summary>
+        /// Obtiene el número de perros activos de un owner
+        /// </summary>
+        public static int GetDogCount(ArenaCombatant owner)
+        {
+            if (owner == null) return 0;
+            
+            if (!_dogsByOwner.TryGetValue(owner, out var dogSet))
+            {
+                return 0;
+            }
+            
+            dogSet.RemoveWhere(d => d == null);
+            return dogSet.Count;
         }
 
         private void Start()
@@ -48,10 +140,10 @@ namespace ArenaEnhanced
                 return;
             }
 
-            // Búsqueda de objetivo (Enemigo o Dueño)
+            // Búsqueda de objetivo usando EnemyFinder
             if (Time.time >= _nextSearchTime)
             {
-                _currentTarget = NearestEnemy();
+                _currentTarget = EnemyFinder.FindNearest(transform.position, _combatant, detectDistance, _combatant?.teamId);
                 if (_currentTarget == null && owner != null && owner.IsAlive)
                 {
                     _currentTarget = owner;
@@ -62,7 +154,7 @@ namespace ArenaEnhanced
             if (_currentTarget == null)
             {
                 _flatVelocity = Vector3.MoveTowards(_flatVelocity, Vector3.zero, acceleration * Time.fixedDeltaTime);
-                ApplyMovement();
+                _rb.ApplyHorizontalVelocity(_flatVelocity);
                 return;
             }
 
@@ -77,68 +169,32 @@ namespace ArenaEnhanced
             {
                 moveDir = toTarget.normalized;
 
-                // Edge detection
-                Vector3 groundCheckPos = transform.position + moveDir * 1.2f + Vector3.up * 0.5f;
-                if (!Physics.Raycast(groundCheckPos, Vector3.down, 2.5f))
+                // Edge detection usando EnemyFinder
+                if (!EnemyFinder.CheckEdgeSafe(transform.position, moveDir, 1.2f, 2.5f))
                 {
-                    moveDir = Vector3.zero; // Stop at edges
+                    moveDir = Vector3.zero;
                 }
             }
 
             // Aplicar velocidad horizontal
             _flatVelocity = Vector3.MoveTowards(_flatVelocity, moveDir * moveSpeed, acceleration * Time.fixedDeltaTime);
-            ApplyMovement();
+            _rb.ApplyHorizontalVelocity(_flatVelocity);
 
-            // Rotación hacia el objetivo
-            Vector3 lookDir = Vector3.Scale(toTarget, new Vector3(1, 0, 1));
-            if (lookDir.sqrMagnitude > 0.01f)
-            {
-                Quaternion targetRot = Quaternion.LookRotation(lookDir.normalized, Vector3.up);
-                transform.rotation = Quaternion.Slerp(transform.rotation, targetRot, 8f * Time.fixedDeltaTime);
-            }
+            // Rotación hacia el objetivo usando EnemyFinder
+            EnemyFinder.RotateTowards(transform, _currentTarget.transform.position, 8f);
 
             // Ataque (solo si el objetivo no es el dueño)
             if (_currentTarget != owner && dist <= attackRange && Time.time >= _nextAttack)
             {
-                float damage = Random.Range(20f, 30.1f);
+                float damage = _balanceConfig != null ? Random.Range(_balanceConfig.dogMinDamage, _balanceConfig.dogMaxDamage) : Random.Range(15f, 25f);
                 _currentTarget.TakeDamage(damage, _combatant);
                 _nextAttack = Time.time + attackCooldown;
 
                 var anim = GetComponentInChildren<Animator>();
                 if (anim != null) anim.SetTrigger("Attack");
-                
-                Debug.Log($"[Robot] Atacando a {_currentTarget.name} con {damage:F1} de daño");
             }
         }
 
-        private void ApplyMovement()
-        {
-            Vector3 vel = _rb.linearVelocity;
-            vel.x = _flatVelocity.x;
-            vel.z = _flatVelocity.z;
-            _rb.linearVelocity = vel;
-        }
-
-        private ArenaCombatant NearestEnemy()
-        {
-            ArenaCombatant nearest = null;
-            float bestSq = float.MaxValue;
-            var all = ArenaCombatant.All;
-            
-            for (int i = 0; i < all.Count; i++)
-            {
-                var c = all[i];
-                if (c == null || !c.IsAlive || c == _combatant || (owner != null && c == owner) || c.teamId == _combatant.teamId) 
-                    continue;
-                
-                float sq = (c.transform.position - transform.position).sqrMagnitude;
-                if (sq < bestSq && sq <= detectDistance * detectDistance)
-                {
-                    bestSq = sq;
-                    nearest = c;
-                }
-            }
-            return nearest;
-        }
+        // Método ApplyMovement eliminado - usar _rb.ApplyHorizontalVelocity(_flatVelocity)
     }
 }

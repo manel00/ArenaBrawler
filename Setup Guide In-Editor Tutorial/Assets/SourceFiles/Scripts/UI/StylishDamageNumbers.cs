@@ -2,6 +2,7 @@ using UnityEngine;
 using TMPro;
 using System.Collections;
 using System.Collections.Generic;
+using System;
 
 namespace ArenaEnhanced
 {
@@ -42,13 +43,17 @@ namespace ArenaEnhanced
         private List<ActiveDamageNumber> _activeNumbers = new List<ActiveDamageNumber>();
         private Transform _canvasTransform;
 
-        private struct ActiveDamageNumber
+        private struct ActiveDamageNumber : IEquatable<ActiveDamageNumber>
         {
             public GameObject gameObject;
             public TextMeshProUGUI text;
             public float startTime;
             public Vector3 startPosition;
             public Vector3 floatDirection;
+            
+            public bool Equals(ActiveDamageNumber other) => gameObject == other.gameObject;
+            public override bool Equals(object obj) => obj is ActiveDamageNumber other && Equals(other);
+            public override int GetHashCode() => gameObject?.GetHashCode() ?? 0;
         }
 
         private void Awake()
@@ -60,13 +65,13 @@ namespace ArenaEnhanced
             }
             Instance = this;
 
-            // Crear canvas si no existe
+            // Crear canvas si no existe - necesitamos ScreenSpace para que el WorldToScreenPoint funcione correctamente
             Canvas canvas = FindAnyObjectByType<Canvas>();
             if (canvas == null)
             {
                 GameObject canvasGO = new GameObject("DamageNumbersCanvas");
                 canvas = canvasGO.AddComponent<Canvas>();
-                canvas.renderMode = RenderMode.WorldSpace;
+                canvas.renderMode = RenderMode.ScreenSpaceOverlay;
                 canvas.sortingOrder = 1000;
             }
             _canvasTransform = canvas.transform;
@@ -116,7 +121,7 @@ namespace ArenaEnhanced
         }
 
         /// <summary>
-        /// Muestra un número de daño flotante
+        /// Muestra un número de daño flotante en espacio de pantalla
         /// </summary>
         public void ShowDamage(float damage, Vector3 worldPosition, DamageType type = DamageType.Normal, bool isCritical = false)
         {
@@ -134,13 +139,22 @@ namespace ArenaEnhanced
             // Configurar tamaño según importancia
             text.fontSize = isCritical ? 6 : 4;
 
-            // Posición en mundo
+            // Posición en pantalla (Screen Space Overlay)
             Vector3 screenPos = Camera.main.WorldToScreenPoint(worldPosition);
-            go.transform.position = screenPos + Vector3.up * 50f;
+            // Convertir a posición local del canvas si es necesario
+            if (_canvasTransform != null && _canvasTransform.GetComponent<Canvas>().renderMode == RenderMode.ScreenSpaceOverlay)
+            {
+                go.transform.position = screenPos + Vector3.up * 50f;
+            }
+            else
+            {
+                // Para WorldSpace canvas, necesitamos posición en mundo
+                go.transform.position = worldPosition + Vector3.up * 1.5f;
+            }
             go.transform.localScale = Vector3.one;
 
             // Dirección aleatoria para separación
-            Vector2 randomDir = Random.insideUnitCircle.normalized;
+            Vector2 randomDir = UnityEngine.Random.insideUnitCircle.normalized;
             Vector3 floatDir = new Vector3(randomDir.x, 1f, 0f);
 
             ActiveDamageNumber active = new ActiveDamageNumber
@@ -169,8 +183,16 @@ namespace ArenaEnhanced
             tmp.color = color;
             tmp.fontSize = 3.5f * scale;
 
+            // Posición en pantalla (Screen Space Overlay)
             Vector3 screenPos = Camera.main.WorldToScreenPoint(worldPosition);
-            go.transform.position = screenPos + Vector3.up * 50f;
+            if (_canvasTransform != null && _canvasTransform.GetComponent<Canvas>().renderMode == RenderMode.ScreenSpaceOverlay)
+            {
+                go.transform.position = screenPos + Vector3.up * 50f;
+            }
+            else
+            {
+                go.transform.position = worldPosition + Vector3.up * 1.5f;
+            }
 
             ActiveDamageNumber active = new ActiveDamageNumber
             {
@@ -199,11 +221,12 @@ namespace ArenaEnhanced
                 // Curva de animación: subida rápida al inicio, lenta al final
                 float heightT = 1f - Mathf.Pow(1f - t, 3f);
                 
-                // Movimiento vertical
-                Vector3 currentPos = startPos + active.floatDirection * floatHeight * heightT * 100f;
+                // Movimiento vertical - valores más razonables para UI
+                float verticalMove = floatHeight * heightT * 80f; // reducido de 100f
+                Vector3 currentPos = startPos + active.floatDirection * verticalMove;
                 
-                // Separación horizontal
-                currentPos.x += active.floatDirection.x * spreadSpeed * t * 50f;
+                // Separación horizontal - valores más razonables
+                currentPos.x += active.floatDirection.x * spreadSpeed * t * 30f; // reducido de 50f
 
                 active.gameObject.transform.position = currentPos;
 
@@ -224,9 +247,11 @@ namespace ArenaEnhanced
                 yield return null;
             }
 
-            // Retornar al pool
+            // Retornar al pool usando FindIndex para structs
+            int index = _activeNumbers.FindIndex(a => a.gameObject == active.gameObject);
+            if (index >= 0)
+                _activeNumbers.RemoveAt(index);
             ReturnToPool(active.gameObject);
-            _activeNumbers.Remove(active);
         }
 
         private GameObject GetFromPool()
@@ -264,7 +289,7 @@ namespace ArenaEnhanced
             
             switch (type)
             {
-                case DamageType.Healing:
+                case DamageType.Heal:
                     return healColor;
                 case DamageType.Poison:
                     return poisonColor;

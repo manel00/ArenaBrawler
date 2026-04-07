@@ -146,6 +146,9 @@ public bool IsRespawning { get; set; } = false;
 {
     _cinemachineTargetYaw = CinemachineCameraTarget.transform.rotation.eulerAngles.y;
 
+    // FIX: Initialize _targetRotation with player's current rotation to align facing direction
+    _targetRotation = transform.eulerAngles.y;
+
     _hasAnimator = TryGetComponent(out _animator);
     _controller = GetComponent<CharacterController>();
     _input = GetComponent<StarterAssetsInputs>();

@@ -1,0 +1,12 @@
+{
+    "mapId": "waterarena",
+    "displayName": "Water Arena",
+    "description": "Island battleground surrounded by water elements",
+    "arenaRadius": 40,
+    "playerSpawnPosition": {"x": 0, "y": 1.5, "z": -8},
+    "botSpawnRadius": 10,
+    "ambientLightColor": {"r": 0.2, "g": 0.3, "b": 0.4, "a": 1},
+    "fogColor": {"r": 0.15, "g": 0.25, "b": 0.35, "a": 1},
+    "fogDensity": 0.015,
+    "environmentType": 5
+}

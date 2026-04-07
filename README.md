@@ -39,7 +39,7 @@
 | **Swap Target** | `Tab` |
 | **Fireball** | `1` or `Numpad 1` |
 | **Summon Dog** | `2` or `Numpad 2` |
-| **Melee Strike** | `3` or `Numpad 3` |
+| **Katana Strike** | `3` or `Numpad 3` (tap = 3-hit combo, hold = charged slash) |
 | **Weapon Attack** | `4` or `Numpad 4` |
 | **Drop Weapon** | `Q` |
 | **Pick Up Weapon** | `E` |
@@ -61,8 +61,10 @@
 To start the MCP Unity server, run the following command in your terminal:
 
 ```powershell
-C:\Users\Manel\.local\bin\uv.exe tool run --from "mcpforunityserver==9.6.0" mcp-for-unity --transport http --http-url http://127.0.0.1:8080 --project-scoped-tools
+C:\Users\Manel\.local\bin\uv.exe tool run --from "mcpforunityserver==9.6.4" mcp-for-unity --transport http --http-url http://127.0.0.1:8080 --project-scoped-tools
 ```
+
+> **Note:** Si no se puede conectar a Unity, reinicia Windsurf. Normalmente se conecta a la primera tras reiniciar.
 
 ---
 

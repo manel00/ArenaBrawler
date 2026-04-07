@@ -25,11 +25,34 @@ namespace ArenaEnhanced
         private void Awake()
         {
             Instance = this;
+            // Subscribe immediately in Awake to catch early deaths
+            ArenaCombatant.Died += OnCombatantDied;
         }
 
         private void OnEnable()
         {
+            // Already subscribed in Awake, but ensure we're subscribed
+            ArenaCombatant.Died -= OnCombatantDied;
             ArenaCombatant.Died += OnCombatantDied;
+            // Auto-find player if not assigned
+            if (player == null)
+                FindPlayer();
+        }
+
+        private void Start()
+        {
+            // Ensure player is found on start as well
+            if (player == null)
+                FindPlayer();
+        }
+
+        private void FindPlayer()
+        {
+            var playerGo = GameObject.FindGameObjectWithTag("Player");
+            if (playerGo != null)
+            {
+                player = playerGo.GetComponent<ArenaCombatant>();
+            }
         }
 
         private void OnDisable()
@@ -37,8 +60,22 @@ namespace ArenaEnhanced
             ArenaCombatant.Died -= OnCombatantDied;
         }
 
+        private float _playerSearchTimer = 0f;
+        private const float PLAYER_SEARCH_INTERVAL = 1f;
+
         private void Update()
         {
+            // Buscar jugador si no lo hemos encontrado aún
+            if (player == null)
+            {
+                _playerSearchTimer += Time.deltaTime;
+                if (_playerSearchTimer >= PLAYER_SEARCH_INTERVAL)
+                {
+                    _playerSearchTimer = 0f;
+                    FindPlayer();
+                }
+            }
+
             bool restartPressed = false;
 #if ENABLE_INPUT_SYSTEM
             if (Keyboard.current != null && Keyboard.current.rKey.wasPressedThisFrame) restartPressed = true;
@@ -47,7 +84,6 @@ namespace ArenaEnhanced
 
             if (ended && restartPressed)
             {
-                Debug.Log($"[ArenaGameManager] Restart requested. Result: {endText}");
                 // If the player died, we respawn them in the same session
                 if (endText.Contains("DERROTADO") && player != null)
                 {
@@ -65,30 +101,61 @@ namespace ArenaEnhanced
 
         private void RespawnPlayerRandomly()
         {
-            // The white square is Central (30x30m), so 15m radius
-            Vector2 rc = Random.insideUnitCircle * 14f; // 14f to stay slightly inside the 15f bounds
-            Vector3 pos = new Vector3(rc.x, 50f, rc.y);
+            // Generar posición aleatoria dentro de 50m del centro (como pide el usuario)
+            Vector2 randomPos = Random.insideUnitCircle * Random.Range(5f, 45f); // 5-45m del centro
+            Vector3 rayStart = new Vector3(randomPos.x, 100f, randomPos.y);
             
-            if (Physics.Raycast(pos, Vector3.down, out RaycastHit hit, 100f))
+            // Raycast desde arriba para encontrar suelo
+            if (Physics.Raycast(rayStart, Vector3.down, out RaycastHit hit, 200f, ~0))
             {
-                player.Respawn(hit.point + Vector3.up * 1.5f); // Spawn slightly above ground
-            }
-            else
-            {
-                player.Respawn(new Vector3(rc.x, 1.5f, rc.y));
+                // Verificar que el suelo es más o menos horizontal (no precipicio)
+                if (hit.normal.y > 0.5f)
+                {
+                    Vector3 spawnPos = hit.point + Vector3.up * 1.5f;
+                    player.Respawn(spawnPos);
+                    Debug.Log($"[ArenaGameManager] Player respawned at {spawnPos}");
+                    return;
+                }
             }
             
-            Debug.Log($"[ArenaGameManager] Player respawned at {player.transform.position} on the white square.");
+            // Fallback: intentar en el centro (0,0)
+            if (Physics.Raycast(new Vector3(0f, 100f, 0f), Vector3.down, out RaycastHit centerHit, 200f))
+            {
+                Vector3 centerSpawn = centerHit.point + Vector3.up * 1.5f;
+                player.Respawn(centerSpawn);
+                Debug.Log($"[ArenaGameManager] Player respawned at center {centerSpawn}");
+                return;
+            }
+            
+            // Último recurso: forzar posición segura
+            Debug.LogError("[ArenaGameManager] CRITICAL: No ground found! Forcing spawn at (0, 2, 0)");
+            player.Respawn(new Vector3(0f, 2f, 0f));
         }
 
         private void OnCombatantDied(ArenaCombatant killer, ArenaCombatant victim)
         {
-            Debug.Log($"[ArenaGameManager] {victim?.displayName} died. Killer: {killer?.displayName}");
-            if (victim != null && victim == player)
+            // Also check by tag if player reference is null
+            if (player == null)
+            {
+                var playerGo = GameObject.FindGameObjectWithTag("Player");
+                if (playerGo != null)
+                {
+                    player = playerGo.GetComponent<ArenaCombatant>();
+                }
+            }
+            
+            // Check if victim is player by multiple methods
+            bool isPlayerVictim = victim != null && (
+                victim == player || 
+                victim.isPlayer || 
+                victim.teamId == 0 ||
+                victim.CompareTag("Player")
+            );
+            
+            if (isPlayerVictim && !ended)
             {
                 ended = true;
                 endText = "HAS SIDO DERROTADO\n<size=24>Presiona [R] para reintentar</size>";
-                Debug.Log("[ArenaGameManager] Player died - GAME OVER");
             }
         }
 
@@ -101,7 +168,6 @@ namespace ArenaEnhanced
             {
                 ended = true;
                 endText = "¡BIODEATH CONQUISTADO!\n<size=24>Presiona [R] para reiniciar</size>";
-                Debug.Log("[ArenaGameManager] ALL WAVES CLEARED - VICTORY!");
             }
         }
     }

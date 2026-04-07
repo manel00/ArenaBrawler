@@ -32,7 +32,7 @@ namespace ArenaEnhanced.Interfaces
         /// <summary>
         /// Evento que se dispara cuando el objeto recibe daño
         /// </summary>
-        event System.Action<float, GameObject> OnDamageReceived;
+        event System.Action<float, GameObject, DamageType> OnDamageReceived;
         
         /// <summary>
         /// Evento que se dispara cuando el objeto muere

@@ -1,0 +1,12 @@
+{
+    "mapId": "forestvalley",
+    "displayName": "Forest Valley",
+    "description": "Lush green valley with rolling hills, dense forests, and a winding river",
+    "arenaRadius": 50,
+    "playerSpawnPosition": {"x": 0, "y": 1.2, "z": -20},
+    "botSpawnRadius": 15,
+    "ambientLightColor": {"r": 0.3, "g": 0.5, "b": 0.3, "a": 1},
+    "fogColor": {"r": 0.2, "g": 0.4, "b": 0.35, "a": 1},
+    "fogDensity": 0.008,
+    "environmentType": 1
+}

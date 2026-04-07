@@ -2,7 +2,10 @@ using UnityEngine;
 using UnityEngine.UI;
 using TMPro;
 using System.Collections;
+using System.Collections.Generic;
 using System.Text;
+using UnityEngine.SceneManagement;
+using UnityEngine.EventSystems;
 
 namespace ArenaEnhanced
 {
@@ -14,13 +17,17 @@ namespace ArenaEnhanced
     {
         // ── Runtime refs (built by SelfHeal) ─────────────────────────────────
         private Image      _healthBar;
-        private Image      _staminaBar;
         private TextMeshProUGUI _waveText;
         private TextMeshProUGUI _pointsText;
         private TextMeshProUGUI _waveAnnounceText;
         private GameObject _gameOverPanel;
         private TextMeshProUGUI _gameOverText;
         private TextMeshProUGUI _weaponNameText;
+
+        // ── Action Buttons ────────────────────────────────────────────────────
+        private Button _rescueButton;
+        private Button _exitButton;
+        private GameObject _confirmDialog;
 
         // ── Serialized optional overrides ────────────────────────────────────
         [Header("Points")]
@@ -45,9 +52,26 @@ namespace ArenaEnhanced
             if (Instance != null && Instance != this) { Destroy(gameObject); return; }
             Instance = this;
 
+            // Ensure EventSystem exists for UI interaction
+            EnsureEventSystem();
+
             // Ensure this GameObject has a Canvas so Unity can render UGUI
             EnsureCanvas();
             BuildAllPanels();
+        }
+
+        private void EnsureEventSystem()
+        {
+            // Check if EventSystem already exists in scene
+            var eventSystem = FindAnyObjectByType<EventSystem>();
+            if (eventSystem == null)
+            {
+                // Create EventSystem GameObject
+                var esGo = new GameObject("EventSystem");
+                esGo.AddComponent<EventSystem>();
+                esGo.AddComponent<StandaloneInputModule>();
+                DontDestroyOnLoad(esGo);
+            }
         }
 
         private void EnsureCanvas()
@@ -97,10 +121,317 @@ namespace ArenaEnhanced
         {
             var panel = MakePanel("WaveHUD_Panel",
                 new Vector2(1, 1), new Vector2(1, 1), new Vector2(1, 1),
-                new Vector2(-30, -30), new Vector2(340, 80));
+                new Vector2(-30, -30), new Vector2(440, 80));
 
-            _waveText   = MakeLabel(panel, "WaveText",   new Vector2(0, -2),  new Vector2(340, 36), 32, "Ola 1", Color.white,  TextAlignmentOptions.Right);
-            _pointsText = MakeLabel(panel, "PointsText", new Vector2(0, -42), new Vector2(340, 28), 22, "0 pts | Lv.0", Color.yellow, TextAlignmentOptions.Right);
+            // Action buttons on the left side of the panel
+            BuildActionButtons(panel);
+
+            _waveText   = MakeLabel(panel, "WaveText",   new Vector2(-100, -2),  new Vector2(340, 36), 32, "Ola 1", Color.white,  TextAlignmentOptions.Right);
+            _pointsText = MakeLabel(panel, "PointsText", new Vector2(-100, -42), new Vector2(340, 28), 22, "0 pts | Lv.0", Color.yellow, TextAlignmentOptions.Right);
+        }
+
+        // ── Action Buttons (left side of wave HUD) ────────────────────────────
+        private void BuildActionButtons(RectTransform parent)
+        {
+            var buttonPanel = MakePanel("ActionButtons_Panel",
+                new Vector2(0, 1), new Vector2(0, 1), new Vector2(0, 1),
+                new Vector2(0, -2), new Vector2(90, 40));
+            buttonPanel.SetParent(parent, false);
+
+            // Rescue button (left) - Orange color for rescue/help
+            _rescueButton = MakeIconButton(buttonPanel, "RescueButton", new Vector2(0, 0), new Vector2(40, 40),
+                new Color(1f, 0.6f, 0f), "R", OnRescueClicked);
+
+            // Exit button (right) - Red color for exit
+            _exitButton = MakeIconButton(buttonPanel, "ExitButton", new Vector2(46, 0), new Vector2(40, 40),
+                new Color(0.9f, 0.2f, 0.2f), "X", OnExitClicked);
+        }
+
+        private Button MakeIconButton(RectTransform parent, string name, Vector2 anchoredPos, Vector2 size,
+            Color color, string iconText, UnityEngine.Events.UnityAction onClick)
+        {
+            var go = new GameObject(name);
+            go.transform.SetParent(parent, false);
+            go.layer = 5; // UI layer
+            var rt = go.AddComponent<RectTransform>();
+            rt.anchorMin = new Vector2(0, 1);
+            rt.anchorMax = new Vector2(0, 1);
+            rt.pivot = new Vector2(0, 1);
+            rt.anchoredPosition = anchoredPos;
+            rt.sizeDelta = size;
+
+            var img = go.AddComponent<Image>();
+            img.color = new Color(color.r, color.g, color.b, 0.85f);
+            img.sprite = GetWhiteSprite();
+
+            var btn = go.AddComponent<Button>();
+            btn.targetGraphic = img;
+
+            var colors = btn.colors;
+            colors.normalColor = Color.white;
+            colors.highlightedColor = new Color(1.2f, 1.2f, 1.2f);
+            colors.pressedColor = new Color(0.8f, 0.8f, 0.8f);
+            btn.colors = colors;
+
+            btn.onClick.AddListener(onClick);
+
+            // Add EventTrigger to unlock cursor on hover
+            var trigger = go.AddComponent<EventTrigger>();
+            var pointerEnter = new EventTrigger.Entry { eventID = EventTriggerType.PointerEnter };
+            pointerEnter.callback.AddListener((e) => { UnlockCursorForUI(true); });
+            trigger.triggers.Add(pointerEnter);
+
+            var pointerExit = new EventTrigger.Entry { eventID = EventTriggerType.PointerExit };
+            pointerExit.callback.AddListener((e) => { UnlockCursorForUI(false); });
+            trigger.triggers.Add(pointerExit);
+
+            // Icon text
+            var iconGo = new GameObject("Icon");
+            iconGo.transform.SetParent(go.transform, false);
+            iconGo.layer = 5;
+            var iconRT = iconGo.AddComponent<RectTransform>();
+            iconRT.anchorMin = Vector2.zero;
+            iconRT.anchorMax = Vector2.one;
+            iconRT.offsetMin = Vector2.zero;
+            iconRT.offsetMax = Vector2.zero;
+            var iconTmp = iconGo.AddComponent<TextMeshProUGUI>();
+            iconTmp.fontSize = 24;
+            iconTmp.color = Color.white;
+            iconTmp.alignment = TextAlignmentOptions.Center;
+            iconTmp.fontStyle = FontStyles.Bold;
+            iconTmp.text = iconText;
+
+            return btn;
+        }
+
+        private void UnlockCursorForUI(bool unlock)
+        {
+            if (unlock)
+            {
+                Cursor.lockState = CursorLockMode.None;
+                Cursor.visible = true;
+            }
+            else
+            {
+                // Check if mouse is still over any UI element before locking
+                if (!IsPointerOverUIElement())
+                {
+                    Cursor.lockState = CursorLockMode.Locked;
+                    Cursor.visible = false;
+                }
+            }
+        }
+
+        private bool IsPointerOverUIElement()
+        {
+            if (EventSystem.current == null) return false;
+            return EventSystem.current.IsPointerOverGameObject();
+        }
+
+        private void OnRescueClicked()
+        {
+            if (playerController == null)
+            {
+                playerController = GameObject.FindGameObjectWithTag("Player")?.GetComponent<PlayerController>();
+                if (playerController == null) return;
+            }
+
+            Vector3 safePosition = FindSafePosition();
+            if (safePosition != Vector3.zero)
+            {
+                playerController.transform.position = safePosition;
+                // Optional: Add visual feedback
+                StartCoroutine(ShowRescueFeedback());
+            }
+        }
+
+        private Vector3 FindSafePosition()
+        {
+            const int maxAttempts = 30;
+            const float minEnemyDistance = 12f;
+            const float arenaRadius = 35f;
+
+            // Get all enemies from HordeWaveManager
+            var enemies = new List<Transform>();
+            if (HordeWaveManager.Instance != null)
+            {
+                // Find all enemies by tag
+                var enemyObjects = GameObject.FindGameObjectsWithTag("Enemy");
+                foreach (var enemy in enemyObjects)
+                {
+                    if (enemy != null && enemy.activeInHierarchy)
+                        enemies.Add(enemy.transform);
+                }
+            }
+
+            for (int i = 0; i < maxAttempts; i++)
+            {
+                Vector2 randomPoint = Random.insideUnitCircle * arenaRadius;
+                Vector3 candidate = new Vector3(randomPoint.x, 50f, randomPoint.y);
+
+                // Raycast to ground
+                if (Physics.Raycast(candidate, Vector3.down, out RaycastHit hit, 100f, ~0, QueryTriggerInteraction.Ignore))
+                {
+                    Vector3 groundPos = hit.point + Vector3.up * 1.5f;
+
+                    // Check distance to all enemies
+                    bool farFromEnemies = true;
+                    foreach (var enemy in enemies)
+                    {
+                        if (enemy == null) continue;
+                        float dist = Vector3.Distance(new Vector3(groundPos.x, 0, groundPos.z), 
+                                                        new Vector3(enemy.position.x, 0, enemy.position.z));
+                        if (dist < minEnemyDistance)
+                        {
+                            farFromEnemies = false;
+                            break;
+                        }
+                    }
+
+                    // Check for obstacles (capsule cast at player height)
+                    bool noObstacles = !Physics.CheckCapsule(groundPos + Vector3.up * 0.5f, 
+                                                              groundPos + Vector3.up * 1.5f, 
+                                                              0.4f, ~0, QueryTriggerInteraction.Ignore);
+
+                    if (farFromEnemies && noObstacles)
+                        return groundPos;
+                }
+            }
+
+            // Fallback: return center arena at safe height
+            return new Vector3(0, 1.5f, 0);
+        }
+
+        private IEnumerator ShowRescueFeedback()
+        {
+            // Brief screen flash effect
+            var flashGo = new GameObject("RescueFlash");
+            flashGo.transform.SetParent(transform, false);
+            var flashRT = flashGo.AddComponent<RectTransform>();
+            flashRT.anchorMin = Vector2.zero;
+            flashRT.anchorMax = Vector2.one;
+            flashRT.offsetMin = Vector2.zero;
+            flashRT.offsetMax = Vector2.zero;
+            var flashImg = flashGo.AddComponent<Image>();
+            flashImg.color = new Color(1f, 0.8f, 0.2f, 0.3f);
+
+            float elapsed = 0f;
+            float duration = 0.3f;
+            while (elapsed < duration)
+            {
+                elapsed += Time.deltaTime;
+                float alpha = 0.3f * (1f - elapsed / duration);
+                flashImg.color = new Color(1f, 0.8f, 0.2f, alpha);
+                yield return null;
+            }
+
+            Destroy(flashGo);
+        }
+
+        private void OnExitClicked()
+        {
+            if (_confirmDialog == null)
+                BuildConfirmationDialog();
+            else
+                _confirmDialog.SetActive(true);
+
+            Time.timeScale = 0f;
+        }
+
+        private void BuildConfirmationDialog()
+        {
+            _confirmDialog = new GameObject("ConfirmDialog");
+            _confirmDialog.transform.SetParent(transform, false);
+            _confirmDialog.layer = 5;
+
+            // Semi-transparent overlay
+            var overlay = MakePanel("DialogOverlay",
+                new Vector2(0, 0), new Vector2(1, 1), new Vector2(0.5f, 0.5f),
+                Vector2.zero, Vector2.zero);
+            overlay.SetParent(_confirmDialog.transform, false);
+            var overlayImg = overlay.gameObject.AddComponent<Image>();
+            overlayImg.color = new Color(0, 0, 0, 0.7f);
+
+            // Dialog box
+            var dialogBox = MakePanel("DialogBox",
+                new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f),
+                Vector2.zero, new Vector2(400, 200));
+            dialogBox.SetParent(_confirmDialog.transform, false);
+            var boxImg = dialogBox.gameObject.AddComponent<Image>();
+            boxImg.color = new Color(0.1f, 0.1f, 0.15f, 0.95f);
+            var boxOutline = dialogBox.gameObject.AddComponent<Outline>();
+            boxOutline.effectColor = new Color(0.3f, 0.3f, 0.4f);
+            boxOutline.effectDistance = new Vector2(2, -2);
+
+            // Title text
+            var title = MakeLabel(dialogBox, "ConfirmTitle", new Vector2(0, -20), new Vector2(400, 40),
+                28, "¿SALIR DEL JUEGO?", new Color(1f, 0.85f, 0.2f), TextAlignmentOptions.Center);
+            title.fontStyle = FontStyles.Bold;
+
+            // Message text
+            var message = MakeLabel(dialogBox, "ConfirmMessage", new Vector2(0, -70), new Vector2(360, 60),
+                18, "Se perderá el progreso actual.\n¿Estás seguro?", Color.white, TextAlignmentOptions.Center);
+
+            // Yes button
+            var yesBtn = MakeDialogButton(dialogBox, "YesButton", new Vector2(-100, -140), new Vector2(140, 45),
+                new Color(0.9f, 0.2f, 0.2f), "SALIR", () =>
+                {
+                    Time.timeScale = 1f;
+                    SceneManager.LoadScene("GetStarted_Scene");
+                });
+
+            // No button
+            var noBtn = MakeDialogButton(dialogBox, "NoButton", new Vector2(100, -140), new Vector2(140, 45),
+                new Color(0.2f, 0.6f, 0.2f), "CONTINUAR", () =>
+                {
+                    Time.timeScale = 1f;
+                    _confirmDialog.SetActive(false);
+                });
+        }
+
+        private Button MakeDialogButton(RectTransform parent, string name, Vector2 anchoredPos, Vector2 size,
+            Color color, string text, UnityEngine.Events.UnityAction onClick)
+        {
+            var go = new GameObject(name);
+            go.transform.SetParent(parent, false);
+            var rt = go.AddComponent<RectTransform>();
+            rt.anchorMin = new Vector2(0.5f, 0.5f);
+            rt.anchorMax = new Vector2(0.5f, 0.5f);
+            rt.pivot = new Vector2(0.5f, 0.5f);
+            rt.anchoredPosition = anchoredPos;
+            rt.sizeDelta = size;
+
+            var img = go.AddComponent<Image>();
+            img.color = color;
+            img.sprite = GetWhiteSprite();
+
+            var btn = go.AddComponent<Button>();
+            btn.targetGraphic = img;
+
+            var colors = btn.colors;
+            colors.normalColor = Color.white;
+            colors.highlightedColor = new Color(1.2f, 1.2f, 1.2f);
+            colors.pressedColor = new Color(0.8f, 0.8f, 0.8f);
+            btn.colors = colors;
+
+            btn.onClick.AddListener(onClick);
+
+            // Button text
+            var textGo = new GameObject("Text");
+            textGo.transform.SetParent(go.transform, false);
+            var textRT = textGo.AddComponent<RectTransform>();
+            textRT.anchorMin = Vector2.zero;
+            textRT.anchorMax = Vector2.one;
+            textRT.offsetMin = Vector2.zero;
+            textRT.offsetMax = Vector2.zero;
+            var textTmp = textGo.AddComponent<TextMeshProUGUI>();
+            textTmp.fontSize = 18;
+            textTmp.color = Color.white;
+            textTmp.alignment = TextAlignmentOptions.Center;
+            textTmp.fontStyle = FontStyles.Bold;
+            textTmp.text = text;
+
+            return btn;
         }
 
         // ── Wave announcement (center) ────────────────────────────────────────
@@ -182,7 +513,6 @@ namespace ArenaEnhanced
                 var go = GameObject.FindGameObjectWithTag("Player");
                 if (go != null) 
                     playerController = go.GetComponent<PlayerController>();
-                Debug.Log($"[ArenaHUD] Buscando jugador por tag: {(go != null ? "ENCONTRADO" : "NO ENCONTRADO")}");
             }
             
             // Suscribirse al evento de salud
@@ -193,40 +523,16 @@ namespace ArenaEnhanced
                 {
                     combatant.OnHealthChanged -= OnPlayerHealthChanged; // Evitar duplicados
                     combatant.OnHealthChanged += OnPlayerHealthChanged;
-                    Debug.Log($"[ArenaHUD] ✅ Suscrito a eventos de salud de {combatant.displayName} (HP: {combatant.hp}/{combatant.maxHp})");
                 }
-                else
-                {
-                    Debug.LogError("[ArenaHUD] ❌ PlayerController no tiene ArenaCombatant!");
-                }
-            }
-            else
-            {
-#if DEBUG
-                Debug.LogError("[ArenaHUD] ❌ No se pudo encontrar PlayerController!");
-#endif
             }
         }
 
         private void OnPlayerHealthChanged(float currentHp, float maxHp)
         {
-#if DEBUG
-            Debug.Log($"[ArenaHUD] OnPlayerHealthChanged llamado: {currentHp}/{maxHp}, _healthBar null? {_healthBar == null}");
-#endif
-            
             if (_healthBar != null && maxHp > 0)
             {
                 float fillAmount = currentHp / maxHp;
                 _healthBar.fillAmount = fillAmount;
-#if DEBUG
-                Debug.Log($"[ArenaHUD] ✅ Barra actualizada: fillAmount = {fillAmount:F2}");
-#endif
-            }
-            else
-            {
-#if DEBUG
-                Debug.LogError($"[ArenaHUD] ❌ No se pudo actualizar barra: _healthBar={_healthBar}, maxHp={maxHp}");
-#endif
             }
         }
 
@@ -253,7 +559,8 @@ namespace ArenaEnhanced
         // ─────────────────────────────────────────────────────────────────────
         private void UpdateHealth()
         {
-            if (_healthBar == null || playerController == null) return;
+            if (_healthBar == null) return;
+            if (playerController == null) return;
             var combatant = playerController.GetComponent<ArenaCombatant>();
             if (combatant != null && combatant.maxHp > 0)
                 _healthBar.fillAmount = combatant.hp / combatant.maxHp;
@@ -284,13 +591,7 @@ namespace ArenaEnhanced
         // ─────────────────────────────────────────────────────────────────────
         public void Initialize(ArenaCombatant player)
         {
-            if (player == null) 
-            {
-#if DEBUG
-                Debug.LogWarning("[ArenaHUD] Initialize llamado con player null");
-#endif
-                return;
-            }
+            if (player == null) return;
             
             playerController = player.GetComponent<PlayerController>();
             SubscribeToHealthEvents();
@@ -334,13 +635,7 @@ namespace ArenaEnhanced
         }
         public void SetPlayerController(PlayerController c) 
         { 
-            if (c == null) 
-            {
-#if DEBUG
-                Debug.LogWarning("[ArenaHUD] SetPlayerController llamado con null");
-#endif
-                return;
-            }
+            if (c == null) return;
             
             // Desuscribir del anterior
             if (playerController != null)

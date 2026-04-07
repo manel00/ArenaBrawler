@@ -109,7 +109,7 @@ namespace ArenaEnhanced
             ArenaCombatant combatant = target.GetComponent<ArenaCombatant>();
             if (combatant != null)
             {
-                combatant.TakeDamage(damage, (GameObject)null);
+                combatant.TakeDamage(damage, (GameObject)null, DamageType.Normal);
                 
                 // Apply slow effect
                 StartCoroutine(ApplySlowEffect(combatant));
@@ -124,8 +124,6 @@ namespace ArenaEnhanced
             
             // Start cooldown
             _cooldownCoroutine = StartCoroutine(ReactivationCooldown());
-            
-            Debug.Log($"[SpikeTrap] Activated on {target.name}");
         }
         
         private IEnumerator ApplySlowEffect(ArenaCombatant combatant)
@@ -178,8 +176,6 @@ namespace ArenaEnhanced
             _isActive = true;
             _isOnCooldown = false;
             _cooldownCoroutine = null;
-            
-            Debug.Log("[SpikeTrap] Reactivated");
         }
         
         public void ActivateByFire()

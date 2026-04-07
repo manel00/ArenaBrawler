@@ -62,23 +62,24 @@ namespace ArenaEnhanced
 
         public float RollDamage()
         {
-            return 0.5f; // Daño fijo de 0.5 por disparo
+            return Random.Range(minDamage, maxDamage);
         }
 
         public float RollSplashDamage()
         {
-            return 0.5f; // Daño fijo de 0.5 por splash
+            return Random.Range(splashMinDamage, splashMaxDamage);
         }
 
         public float RollDamagePerSecond()
         {
-            return 0.5f; // Daño fijo de 0.5 por segundo
+            return Random.Range(minDamagePerSecond, maxDamagePerSecond);
         }
     }
     
     public enum WeaponType
     {
         Melee,
+        MeleeSword,
         Ranged,
         Thrown,
         Flamethrower,
@@ -90,6 +91,7 @@ namespace ArenaEnhanced
     {
         Projectile,
         Hitscan,
-        Continuous
+        Continuous,
+        Melee
     }
 }

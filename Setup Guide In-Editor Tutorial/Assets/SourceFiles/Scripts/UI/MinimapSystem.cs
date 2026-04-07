@@ -16,16 +16,15 @@ namespace ArenaEnhanced
         [SerializeField] private float worldRadius = 80f;
         
         [Tooltip("Tamaño del minimapa en pantalla (píxeles)")]
-        [SerializeField] private Vector2 mapSize = new Vector2(200, 200);
+        [SerializeField] private Vector2 mapSize = new Vector2(250, 250);
         
         [Tooltip("Posición en pantalla")]
-        [SerializeField] private Vector2 mapPosition = new Vector2(30, 30);
+        [SerializeField] private Vector2 mapPosition = new Vector2(-30, 30);
 
         [Header("Visual Settings")]
         [SerializeField] private Sprite minimapBackground;
         [SerializeField] private Color backgroundColor = new Color(0.1f, 0.15f, 0.1f, 0.85f);
         [SerializeField] private Color borderColor = new Color(0.4f, 0.5f, 0.4f, 1f);
-        [SerializeField] private float borderWidth = 3f;
 
         [Header("Icon Settings")]
         [SerializeField] private float playerIconSize = 16f;
@@ -96,33 +95,39 @@ namespace ArenaEnhanced
                 canvas.sortingOrder = 100;
             }
 
-            // Panel principal del minimapa
+            // Panel principal del minimapa (circular) - anclado a esquina inferior derecha
             GameObject panelGO = new GameObject("MinimapPanel");
             panelGO.transform.SetParent(canvas.transform, false);
             _minimapPanel = panelGO.AddComponent<RectTransform>();
-            _minimapPanel.anchorMin = Vector2.zero;
-            _minimapPanel.anchorMax = Vector2.zero;
-            _minimapPanel.anchoredPosition = mapPosition;
-            _minimapPanel.sizeDelta = mapSize;
+            _minimapPanel.anchorMin = new Vector2(1, 0);  // Esquina inferior derecha
+            _minimapPanel.anchorMax = new Vector2(1, 0);  // Esquina inferior derecha
+            _minimapPanel.pivot = new Vector2(1, 0);      // Pivot en esquina inferior derecha
+            _minimapPanel.anchoredPosition = new Vector2(-20, 20);  // 20px de margen desde esquina
+            _minimapPanel.sizeDelta = new Vector2(mapSize.x, mapSize.x); // Cuadrado para círculo perfecto
 
-            // Background
+            // Background circular con máscara
             Image bgImage = panelGO.AddComponent<Image>();
-            if (minimapBackground != null)
-                bgImage.sprite = minimapBackground;
+            bgImage.sprite = CreateCircleSprite();
             bgImage.color = backgroundColor;
+            bgImage.type = Image.Type.Simple;
 
-            // Border
+            // Añadir Mask para que los iconos se recorten circularmente
+            Mask mask = panelGO.AddComponent<Mask>();
+            mask.showMaskGraphic = true;
+
+            // Borde circular - con padding para que no se corte
             GameObject borderGO = new GameObject("Border");
             borderGO.transform.SetParent(_minimapPanel, false);
             RectTransform borderRT = borderGO.AddComponent<RectTransform>();
             borderRT.anchorMin = Vector2.zero;
             borderRT.anchorMax = Vector2.one;
-            borderRT.offsetMin = Vector2.zero;
-            borderRT.offsetMax = Vector2.zero;
+            borderRT.offsetMin = new Vector2(2, 2);   // Padding interior
+            borderRT.offsetMax = new Vector2(-2, -2); // Padding interior
             
-            Outline outline = borderGO.AddComponent<Outline>();
-            outline.effectColor = borderColor;
-            outline.effectDistance = new Vector2(borderWidth, borderWidth);
+            Image borderImg = borderGO.AddComponent<Image>();
+            borderImg.sprite = CreateCircleOutlineSprite();
+            borderImg.color = borderColor;
+            borderImg.type = Image.Type.Simple;
 
             // Container para icons
             GameObject iconsGO = new GameObject("IconsContainer");
@@ -289,9 +294,22 @@ namespace ArenaEnhanced
 
         private void SetupIconShape(MinimapIcon icon, IconType type)
         {
-            // Configurar sprite según tipo
-            // En un proyecto real, usarías sprites específicos
-            // Aquí usamos el color para diferenciar
+            switch (type)
+            {
+                case IconType.Player:
+                    icon.image.sprite = CreateTriangleSprite();
+                    break;
+                case IconType.Ally:
+                    icon.image.sprite = CreateCircleSprite();
+                    break;
+                case IconType.Enemy:
+                case IconType.Boss:
+                    icon.image.sprite = CreateCircleSprite();
+                    break;
+                default:
+                    icon.image.sprite = CreateCircleSprite();
+                    break;
+            }
         }
 
         private float GetIconSize(IconType type)
@@ -362,6 +380,91 @@ namespace ArenaEnhanced
                 Gizmos.color = new Color(0.2f, 0.8f, 1f, 0.3f);
                 Gizmos.DrawWireSphere(_playerTransform.position, worldRadius);
             }
+        }
+
+        /// <summary>
+        /// Crea un sprite circular sólido
+        /// </summary>
+        private static Sprite CreateCircleSprite()
+        {
+            int size = 64;
+            Texture2D tex = new Texture2D(size, size, TextureFormat.RGBA32, false);
+            Color[] pixels = new Color[size * size];
+            Vector2 center = new Vector2(size / 2f, size / 2f);
+            float radius = size / 2f - 2f;
+
+            for (int y = 0; y < size; y++)
+            {
+                for (int x = 0; x < size; x++)
+                {
+                    float dist = Vector2.Distance(new Vector2(x, y), center);
+                    pixels[y * size + x] = dist <= radius ? Color.white : Color.clear;
+                }
+            }
+
+            tex.SetPixels(pixels);
+            tex.Apply();
+            return Sprite.Create(tex, new Rect(0, 0, size, size), new Vector2(0.5f, 0.5f));
+        }
+
+        /// <summary>
+        /// Crea un sprite de contorno circular
+        /// </summary>
+        private static Sprite CreateCircleOutlineSprite()
+        {
+            int size = 64;
+            Texture2D tex = new Texture2D(size, size, TextureFormat.RGBA32, false);
+            Color[] pixels = new Color[size * size];
+            Vector2 center = new Vector2(size / 2f, size / 2f);
+            float outerRadius = size / 2f;
+            float innerRadius = size / 2f - 4f;
+
+            for (int y = 0; y < size; y++)
+            {
+                for (int x = 0; x < size; x++)
+                {
+                    float dist = Vector2.Distance(new Vector2(x, y), center);
+                    pixels[y * size + x] = (dist <= outerRadius && dist >= innerRadius) ? Color.white : Color.clear;
+                }
+            }
+
+            tex.SetPixels(pixels);
+            tex.Apply();
+            return Sprite.Create(tex, new Rect(0, 0, size, size), new Vector2(0.5f, 0.5f));
+        }
+
+        /// <summary>
+        /// Crea un sprite triangular (apunta hacia arriba por defecto)
+        /// </summary>
+        private static Sprite CreateTriangleSprite()
+        {
+            int size = 64;
+            Texture2D tex = new Texture2D(size, size, TextureFormat.RGBA32, false);
+            Color[] pixels = new Color[size * size];
+
+            // Triángulo apuntando hacia arriba
+            Vector2 top = new Vector2(size / 2f, size - 4f);
+            Vector2 bottomLeft = new Vector2(4f, 4f);
+            Vector2 bottomRight = new Vector2(size - 4f, 4f);
+
+            for (int y = 0; y < size; y++)
+            {
+                for (int x = 0; x < size; x++)
+                {
+                    Vector2 p = new Vector2(x, y);
+                    // Usar barycentric coordinates para determinar si está dentro del triángulo
+                    float denom = (bottomLeft.y - bottomRight.y) * (top.x - bottomRight.x) + (bottomRight.x - bottomLeft.x) * (top.y - bottomRight.y);
+                    float a = ((bottomLeft.y - bottomRight.y) * (p.x - bottomRight.x) + (bottomRight.x - bottomLeft.x) * (p.y - bottomRight.y)) / denom;
+                    float b = ((bottomRight.y - top.y) * (p.x - bottomRight.x) + (top.x - bottomRight.x) * (p.y - bottomRight.y)) / denom;
+                    float c = 1 - a - b;
+
+                    pixels[y * size + x] = (a >= 0 && b >= 0 && c >= 0) ? Color.white : Color.clear;
+                }
+            }
+
+            tex.SetPixels(pixels);
+            tex.Apply();
+            return Sprite.Create(tex, new Rect(0, 0, size, size), new Vector2(0.5f, 0.5f));
         }
     }
 }

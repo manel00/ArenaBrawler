@@ -68,6 +68,12 @@ namespace ArenaEnhanced
             _activeObjects = new Dictionary<GameObject, string>();
             _poolParents = new Dictionary<string, Transform>();
 
+            if (pools == null)
+            {
+                pools = new List<Pool>();
+                return;
+            }
+
             foreach (var pool in pools)
             {
                 if (pool.prefab == null)
@@ -162,6 +168,14 @@ namespace ArenaEnhanced
             // Configurar y activar
             objectToSpawn.transform.SetPositionAndRotation(position, rotation);
             objectToSpawn.SetActive(true);
+            
+            // IMPORTANTE: Resetear velocidad del Rigidbody si existe
+            var rb = objectToSpawn.GetComponent<Rigidbody>();
+            if (rb != null)
+            {
+                rb.linearVelocity = Vector3.zero;
+                rb.angularVelocity = Vector3.zero;
+            }
             
             // Tracking
             _activeObjects[objectToSpawn] = tag;
@@ -265,6 +279,78 @@ namespace ArenaEnhanced
         public bool HasPool(string tag)
         {
             return _poolDictionary != null && _poolDictionary.ContainsKey(tag);
+        }
+
+        /// <summary>
+        /// Crea un pool dinámicamente en tiempo de ejecución
+        /// </summary>
+        public void CreatePool(string tag, GameObject prefab, int size, int maxSize = 0)
+        {
+            if (_poolDictionary == null)
+            {
+                _poolDictionary = new Dictionary<string, Queue<GameObject>>();
+                _activeObjects = new Dictionary<GameObject, string>();
+                _poolParents = new Dictionary<string, Transform>();
+            }
+
+            if (_poolDictionary.ContainsKey(tag))
+            {
+                Debug.LogWarning($"[ObjectPool] Pool '{tag}' ya existe");
+                return;
+            }
+
+            if (prefab == null)
+            {
+                Debug.LogError($"[ObjectPool] No se puede crear pool '{tag}' - prefab es null");
+                return;
+            }
+
+            // Crear objeto padre para organización
+            if (createPoolParent)
+            {
+                GameObject parentGo = new GameObject($"Pool_{tag}");
+                parentGo.transform.SetParent(transform);
+                _poolParents[tag] = parentGo.transform;
+            }
+
+            // Pre-instanciar objetos
+            Queue<GameObject> objectQueue = new Queue<GameObject>();
+            for (int i = 0; i < size; i++)
+            {
+                GameObject obj = CreateNewObjectForTag(tag, prefab);
+                objectQueue.Enqueue(obj);
+            }
+
+            _poolDictionary.Add(tag, objectQueue);
+            
+            // Agregar a la lista de pools para referencia
+            if (pools == null)
+            {
+                pools = new List<Pool>();
+            }
+            var newPool = new Pool { tag = tag, prefab = prefab, size = size, maxSize = maxSize };
+            pools.Add(newPool);
+        }
+
+        private GameObject CreateNewObjectForTag(string tag, GameObject prefab)
+        {
+            GameObject obj = Instantiate(prefab);
+            
+            if (_poolParents.ContainsKey(tag))
+            {
+                obj.transform.SetParent(_poolParents[tag]);
+            }
+            
+            obj.SetActive(false);
+            
+            var pooledObj = obj.GetComponent<PooledObject>();
+            if (pooledObj == null)
+            {
+                pooledObj = obj.AddComponent<PooledObject>();
+            }
+            pooledObj.PoolTag = tag;
+            
+            return obj;
         }
     }
 

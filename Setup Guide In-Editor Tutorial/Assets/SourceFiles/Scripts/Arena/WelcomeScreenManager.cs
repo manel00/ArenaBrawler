@@ -32,7 +32,6 @@ namespace ArenaEnhanced
             SetupControlPanel();
             AutoLinkComponents();
             StyleUIElements();
-            Debug.Log("[WelcomeScreenManager] Awake complete: UI Self-Healing and Styling applied.");
         }
 
         private void SetupCanvas()
@@ -155,7 +154,7 @@ namespace ArenaEnhanced
             var titleText = FindComponentByName<Text>("Text_Title");
             if (titleText != null)
             {
-                titleText.text = "⚔️ ARENA BRAWLER ⚔️";
+                titleText.text = "⚔ ARENA BRAWLER ⚔";
                 StyleText(titleText, 42, new Color(1f, 0.85f, 0.2f, 1f), true);
                 // Add Outline for premium effect
                 var outline = titleText.gameObject.GetComponent<Outline>() ?? titleText.gameObject.AddComponent<Outline>();
@@ -310,8 +309,6 @@ namespace ArenaEnhanced
             dropdown.itemText = ilText;
 
             tGo.SetActive(false); // Hide template last
-            
-            Debug.Log("[WelcomeScreenManager] Dropdown rebuilt and template assigned.");
         }
 
         private void StyleButton(Button b, Color baseCol)
@@ -411,7 +408,6 @@ namespace ArenaEnhanced
             PlayerPrefs.SetString("FromWelcomeScreen", "true");  // Flag to indicate we came from welcome screen
             PlayerPrefs.Save();
 
-            Debug.Log($"[WelcomeScreen] Starting Solo: Name={playerName}, Bots={_botCount}");
             SceneManager.LoadScene(arenaSceneName);
         }
     }

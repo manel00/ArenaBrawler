@@ -31,6 +31,10 @@ namespace ArenaEnhanced
             Color color = renderers.Length > 0 ? fragmentColor : fragmentColor;
 
             var mat = new Material(Shader.Find("Universal Render Pipeline/Lit"));
+            if (mat == null || mat.shader.name.Contains("Error"))
+                mat = new Material(Shader.Find("Standard"));
+            if (mat == null || mat.shader.name.Contains("Error"))
+                mat = new Material(Shader.Find("Diffuse"));
             mat.color = color;
 
             for (int i = 0; i < fragmentCount; i++)

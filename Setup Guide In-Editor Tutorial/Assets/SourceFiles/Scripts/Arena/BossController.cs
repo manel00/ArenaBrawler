@@ -10,7 +10,7 @@ namespace ArenaEnhanced
     public class BossController : MonoBehaviour
     {
         [Header("Stats")]
-        public float moveSpeed = 9.6f; // Aumentado 20% (de 8f a 9.6f)
+        public float moveSpeed = 28.8f; // Aumentado 3x (de 9.6f a 28.8f)
         public float acceleration = 25f;
         public float detectDistance = 100f; 
         public float attackRange = 3f;
@@ -62,7 +62,7 @@ namespace ArenaEnhanced
 
             if (Time.time >= _nextSearchTime)
             {
-                _currentTarget = NearestTarget();
+                _currentTarget = EnemyFinder.FindNearest(transform.position, _combatant, detectDistance, teamId: 99);
                 _nextSearchTime = Time.time + 0.5f;
             }
 
@@ -84,12 +84,11 @@ namespace ArenaEnhanced
             {
                 moveDir = toTarget.normalized;
                 
-                // Raycast edge detection (visual/AI stop)
-                Vector3 groundCheckPos = transform.position + moveDir * 2.5f + Vector3.up * 0.5f;
-                if (!Physics.Raycast(groundCheckPos, Vector3.down, 3f))
-                {
-                    moveDir = Vector3.zero; // Stop at edges
-                }
+            // Raycast edge detection - usando EnemyFinder
+            if (!EnemyFinder.CheckEdgeSafe(transform.position, moveDir, 2.5f, 3f))
+            {
+                moveDir = Vector3.zero;
+            }
             }
 
             // Boundary constraints (hard cleanup)
@@ -106,11 +105,10 @@ namespace ArenaEnhanced
             _flatVelocity = Vector3.MoveTowards(_flatVelocity, moveDir * moveSpeed, acceleration * Time.fixedDeltaTime);
             ApplyMovement();
 
-            Vector3 lookDir = Vector3.Scale(toTarget, new Vector3(1, 0, 1));
-            if (lookDir.sqrMagnitude > 0.01f)
+            // Rotación hacia el objetivo usando EnemyFinder
+            if (_currentTarget != null)
             {
-                Quaternion targetRot = Quaternion.LookRotation(lookDir.normalized, Vector3.up);
-                transform.rotation = Quaternion.Slerp(transform.rotation, targetRot, 8f * Time.fixedDeltaTime);
+                EnemyFinder.RotateTowards(transform, _currentTarget.transform.position, 8f);
             }
 
             UpdateAnimator(_flatVelocity.magnitude);
@@ -123,10 +121,7 @@ namespace ArenaEnhanced
 
         private void ApplyMovement()
         {
-            Vector3 vel = _rb.linearVelocity;
-            vel.x = _flatVelocity.x;
-            vel.z = _flatVelocity.z;
-            _rb.linearVelocity = vel;
+            _rb.ApplyHorizontalVelocity(_flatVelocity);
         }
 
         private void UpdateAnimator(float speed)
@@ -154,28 +149,6 @@ namespace ArenaEnhanced
         private void ResetMeleeTrigger()
         {
             if (_animator != null) _animator.SetFloat(HashAttackTrigger, 0.0f);
-        }
-
-        private ArenaCombatant NearestTarget()
-        {
-            ArenaCombatant nearest = null;
-            float bestSq = float.MaxValue;
-            var all = ArenaCombatant.All;
-            
-            for (int i = 0; i < all.Count; i++)
-            {
-                var c = all[i];
-                if (c == null || !c.IsAlive || c == _combatant) 
-                    continue; 
-                
-                float sq = (c.transform.position - transform.position).sqrMagnitude;
-                if (sq < bestSq && sq <= detectDistance * detectDistance)
-                {
-                    bestSq = sq;
-                    nearest = c;
-                }
-            }
-            return nearest;
         }
     }
 }

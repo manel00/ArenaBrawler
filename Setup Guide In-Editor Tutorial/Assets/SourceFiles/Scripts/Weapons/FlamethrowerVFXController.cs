@@ -91,6 +91,12 @@ namespace ArenaEnhanced
         /// </summary>
         private void ConfigureMassiveFlame()
         {
+            // Detener el sistema antes de modificar la configuración
+            if (flameParticles.isPlaying)
+            {
+                flameParticles.Stop(true, ParticleSystemStopBehavior.StopEmittingAndClear);
+            }
+            
             // MAIN MODULE - Fuego que empieza muy delgado
             _flameMain.duration = 1f;
             _flameMain.loop = true;

@@ -1,0 +1,12 @@
+{
+    "mapId": "koreantemple",
+    "displayName": "Korean Temple",
+    "description": "Asian architecture with temples and close quarters combat",
+    "arenaRadius": 48,
+    "playerSpawnPosition": {"x": 0, "y": 1.2, "z": -15},
+    "botSpawnRadius": 12,
+    "ambientLightColor": {"r": 0.3, "g": 0.28, "b": 0.25, "a": 1},
+    "fogColor": {"r": 0.25, "g": 0.22, "b": 0.18, "a": 1},
+    "fogDensity": 0.025,
+    "environmentType": 6
+}

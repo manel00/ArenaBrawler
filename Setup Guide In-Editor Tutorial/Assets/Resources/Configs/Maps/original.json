@@ -1,0 +1,12 @@
+{
+    "mapId": "original",
+    "displayName": "Original Arena",
+    "description": "Classic flat arena with trees and rocks - the original battleground",
+    "arenaRadius": 38,
+    "playerSpawnPosition": {"x": 0, "y": 1.2, "z": -6},
+    "botSpawnRadius": 8,
+    "ambientLightColor": {"r": 0.2, "g": 0.2, "b": 0.3, "a": 1},
+    "fogColor": {"r": 0.1, "g": 0.12, "b": 0.15, "a": 1},
+    "fogDensity": 0.01,
+    "environmentType": 0
+}

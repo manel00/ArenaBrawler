@@ -48,5 +48,20 @@ namespace ArenaEnhanced
         public static void PlayFireball() { }
         public static void PlayPickup() { }
         public static void PlayMelee() { }
+        
+        /// <summary>
+        /// Reproduce sonido de lanzamiento de granada
+        /// </summary>
+        public static void PlayGrenadeThrow() { }
+        
+        /// <summary>
+        /// Reproduce sonido de explosión en posición específica
+        /// </summary>
+        public static void PlayExplosionSound(Vector3 position) { }
+        
+        /// <summary>
+        /// Reproduce sonido genérico de habilidad
+        /// </summary>
+        public static void PlayAbilitySound(string abilityName) { }
     }
 }

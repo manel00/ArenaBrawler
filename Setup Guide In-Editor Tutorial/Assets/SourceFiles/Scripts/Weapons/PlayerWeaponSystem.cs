@@ -12,6 +12,9 @@ namespace ArenaEnhanced
         [SerializeField] private LayerMask weaponPickupLayer = ~0;
         [SerializeField] private float pickupScanRadius = 2f;
         
+        [Header("Sistemas Integrados")]
+        [SerializeField] private WeaponMeleeSystem meleeSystem;
+        
         [Header("Arma Actual")]
         public WeaponData currentWeaponData;
         public int currentAmmo;
@@ -30,7 +33,7 @@ namespace ArenaEnhanced
         
         // VFX de fuego del lanzallamas (usando assets existentes)
         private GameObject _flamethrowerFireInstance;
-        private static readonly string FLAMETHROWER_VFX_PATH = "SourceFiles/VFX/VFX_FloatUp";
+        // private static readonly string FLAMETHROWER_VFX_PATH = "SourceFiles/VFX/VFX_FloatUp"; // Reserved for future use
         private static readonly Vector3 FLAMETHROWER_VFX_OFFSET = new Vector3(0, 0, 0.5f);
         private static readonly Vector3 FLAMETHROWER_VFX_SCALE = new Vector3(2f, 2f, 2f);
 
@@ -51,6 +54,7 @@ namespace ArenaEnhanced
         private void Awake()
         {
             _owner = GetComponent<ArenaCombatant>();
+            meleeSystem = GetComponent<WeaponMeleeSystem>();
             EnsureWeaponHoldPoint();
         }
 
@@ -183,6 +187,16 @@ namespace ArenaEnhanced
                 return false;
             }
             
+            // Delegar a sistema melee si es arma melee
+            if (IsMeleeWeapon())
+            {
+                if (meleeSystem != null)
+                {
+                    return meleeSystem.TryAttack();
+                }
+                return false;
+            }
+            
             // Para armas continuas (lanzallamas), no bloquear por cooldown - solo mantener activo
             if (currentWeaponData.fireMode == WeaponFireMode.Continuous)
             {
@@ -193,12 +207,13 @@ namespace ArenaEnhanced
                 return true;
             }
             
-            // Cooldowns desactivados - disparo libre
-            // if (Time.time - _lastAttackTime < currentWeaponData.attackCooldown) 
-            // {
-            //     Debug.Log($"[PlayerWeaponSystem] AttackTarget falló: Cooldown activo");
-            //     return false;
-            // }
+            // Full-auto: permitir disparo continuo respetando attackCooldown
+            // Solo aplicar cooldown si ya hemos disparado antes (evita bloquear primer disparo)
+            // FIX: Usar >= 0 para permitir el primer disparo
+            if (_lastAttackTime >= 0 && Time.time - _lastAttackTime < currentWeaponData.attackCooldown) 
+            {
+                return false;
+            }
             if (currentWeaponData.UsesAmmo && currentAmmo == 0) 
             {
 #if DEBUG
@@ -235,17 +250,29 @@ namespace ArenaEnhanced
             return true;
         }
 
+        /// <summary>
+        /// Comprueba si el arma actual es melee
+        /// </summary>
+        private bool IsMeleeWeapon()
+        {
+            if (currentWeaponData == null) return false;
+            return currentWeaponData.type == WeaponType.Melee || 
+                   currentWeaponData.type == WeaponType.MeleeSword ||
+                   currentWeaponData.fireMode == WeaponFireMode.Melee;
+        }
+
         private Vector3 GetAttackOrigin()
         {
-            // Altura fija de 1.1m sobre el suelo para el punto de salida
-            return transform.position + Vector3.up * 1.1f + transform.forward * 0.5f;
+            // ORIGEN: Delante del jugador a altura del pecho
+            return transform.position + transform.forward * 0.8f + Vector3.up * 1.4f;
         }
 
         private Vector3 GetAimDirection(Vector3 origin, ArenaCombatant forcedTarget)
         {
-            // Siempre disparar hacia adelante, proyectado en horizontal
-            Vector3 forward = transform.forward;
-            return new Vector3(forward.x, 0, forward.z).normalized;
+            // Usar el forward del transform del jugador (ya es horizontal)
+            Vector3 dir = transform.forward;
+            dir.y = 0f; // Asegurar que es horizontal
+            return dir.normalized;
         }
 
         private void PerformProjectileShot(Vector3 origin, Vector3 baseDirection)
@@ -253,6 +280,28 @@ namespace ArenaEnhanced
             if (currentWeaponData == null) return;
             
             int projectileCount = Mathf.Max(1, currentWeaponData.projectilesPerShot);
+            
+            // A) RETROCESO VISUAL (kickback) para Assault Rifle
+            ApplyWeaponKickback();
+            
+            // B) MUZZLE FLASH al disparar
+            SpawnMuzzleFlash(origin, baseDirection);
+            
+            // D) CASQUILLOS EXPULSADOS
+            for (int i = 0; i < projectileCount; i++)
+            {
+                // Pequeña pausa entre casquillos si son multiples proyectiles
+                if (i > 0)
+                {
+                    // Delay para casquillo adicional
+                    Invoke(nameof(SpawnShellCasing), i * 0.05f);
+                }
+                else
+                {
+                    SpawnShellCasing();
+                }
+            }
+            
 #if DEBUG
             Debug.Log($"[PlayerWeaponSystem] PerformProjectileShot: {projectileCount} proyectiles, origin={origin}, dir={baseDirection}");
 #endif
@@ -264,6 +313,135 @@ namespace ArenaEnhanced
 #endif
                 RuntimeSpawner.SpawnWeaponProjectile(_owner, origin, dir, currentWeaponData);
             }
+        }
+        
+        /// <summary>
+        /// A) Aplica retroceso visual al arma (kickback)
+        /// </summary>
+        private void ApplyWeaponKickback()
+        {
+            if (weaponHoldPoint == null) return;
+            
+            // Retroceso hacia atrás y arriba
+            Vector3 kickback = new Vector3(
+                Random.Range(-0.02f, 0.02f),  // Lateral aleatorio
+                Random.Range(0.05f, 0.1f),  // Arriba
+                -0.15f                         // Atrás
+            );
+            
+            weaponHoldPoint.localPosition += kickback;
+            
+            // Rotación de retroceso (pitch up)
+            weaponHoldPoint.localRotation = Quaternion.Euler(
+                Random.Range(-5f, -10f),  // Pitch up
+                Random.Range(-2f, 2f),    // Yaw aleatorio
+                Random.Range(-2f, 2f)     // Roll aleatorio
+            );
+            
+            // Restaurar posición gradualmente (simulando recuperación)
+            StartCoroutine(RestoreWeaponPosition());
+        }
+        
+        private System.Collections.IEnumerator RestoreWeaponPosition()
+        {
+            yield return new WaitForSeconds(0.1f);
+            
+            Vector3 targetPos = new Vector3(0.12f, -0.08f, 0.22f);
+            if (currentWeaponData?.weaponName?.ToLower().Contains("shotgun") == true)
+                targetPos = new Vector3(0.14f, -0.06f, 0.24f);
+            else if (currentWeaponData?.weaponName?.ToLower().Contains("assault") == true)
+                targetPos = new Vector3(0.12f, -0.08f, 0.22f);
+            
+            float elapsed = 0f;
+            float duration = 0.15f;
+            Vector3 startPos = weaponHoldPoint.localPosition;
+            Quaternion startRot = weaponHoldPoint.localRotation;
+            
+            while (elapsed < duration)
+            {
+                elapsed += Time.deltaTime;
+                float t = elapsed / duration;
+                weaponHoldPoint.localPosition = Vector3.Lerp(startPos, targetPos, t);
+                weaponHoldPoint.localRotation = Quaternion.Lerp(startRot, Quaternion.identity, t);
+                yield return null;
+            }
+            
+            weaponHoldPoint.localPosition = targetPos;
+            weaponHoldPoint.localRotation = Quaternion.identity;
+        }
+        
+        /// <summary>
+        /// B) Spawn muzzle flash (flash de disparo) en el arma
+        /// </summary>
+        private void SpawnMuzzleFlash(Vector3 origin, Vector3 direction)
+        {
+            // Crear flash de disparo
+            var flashObj = new GameObject("MuzzleFlash");
+            flashObj.transform.position = origin + direction * 0.3f;
+            flashObj.transform.rotation = Quaternion.LookRotation(direction);
+            
+            // Luz del flash
+            var light = flashObj.AddComponent<Light>();
+            light.type = LightType.Point;
+            light.color = new Color(1f, 0.8f, 0.4f);
+            light.intensity = 4f;
+            light.range = 6f;
+            light.shadows = LightShadows.None;
+            
+            // Mesh del flash (cono o esfera)
+            var flashMesh = GameObject.CreatePrimitive(PrimitiveType.Sphere);
+            flashMesh.name = "FlashMesh";
+            flashMesh.transform.SetParent(flashObj.transform, false);
+            flashMesh.transform.localScale = new Vector3(0.15f, 0.15f, 0.3f);
+            Object.Destroy(flashMesh.GetComponent<Collider>());
+            
+            var renderer = flashMesh.GetComponent<Renderer>();
+            var mat = new Material(Shader.Find("Unlit/Color"));
+            mat.color = new Color(1f, 0.9f, 0.5f, 0.8f);
+            renderer.material = mat;
+            
+            // Destruir después de un frame
+            Object.Destroy(flashObj, 0.05f);
+        }
+        
+        /// <summary>
+        /// D) Spawn casquillo expulsado
+        /// </summary>
+        private void SpawnShellCasing()
+        {
+            if (weaponHoldPoint == null) return;
+            
+            // Posición de expulsión (derecha del arma)
+            Vector3 ejectPos = weaponHoldPoint.position + weaponHoldPoint.right * 0.2f + Vector3.up * 0.1f;
+            
+            // Crear casquillo
+            var casing = GameObject.CreatePrimitive(PrimitiveType.Cylinder);
+            casing.name = "ShellCasing";
+            casing.transform.position = ejectPos;
+            casing.transform.localScale = new Vector3(0.03f, 0.05f, 0.03f);
+            casing.transform.rotation = Random.rotation;
+            Object.Destroy(casing.GetComponent<Collider>());
+            
+            // Material dorado (latón)
+            var renderer = casing.GetComponent<Renderer>();
+            var mat = new Material(Shader.Find("Standard"));
+            mat.color = new Color(0.9f, 0.7f, 0.2f);
+            mat.SetFloat("_Metallic", 0.8f);
+            mat.SetFloat("_Glossiness", 0.6f);
+            renderer.material = mat;
+            
+            // Rigidbody para física
+            var rb = casing.AddComponent<Rigidbody>();
+            rb.mass = 0.01f;
+            rb.useGravity = true;
+            
+            // Velocidad de expulsión (hacia la derecha y atrás)
+            Vector3 ejectDir = (weaponHoldPoint.right + Vector3.up * 0.5f - weaponHoldPoint.forward * 0.3f).normalized;
+            rb.linearVelocity = ejectDir * Random.Range(2f, 4f);
+            rb.angularVelocity = Random.insideUnitSphere * 10f;
+            
+            // Auto-destruir después de 3 segundos
+            Object.Destroy(casing, 3f);
         }
 
         private void PerformHitscanShot(Vector3 origin, Vector3 baseDirection)
@@ -678,7 +856,16 @@ namespace ArenaEnhanced
                 }
                 else
                 {
-                    Material mat = new Material(Shader.Find("Universal Render Pipeline/Lit"));
+                    // Intentar URP primero, fallback a shaders estándar
+                    Shader litShader = Shader.Find("Universal Render Pipeline/Lit");
+                    if (litShader == null)
+                        litShader = Shader.Find("Standard");
+                    if (litShader == null)
+                        litShader = Shader.Find("Diffuse");
+                    if (litShader == null)
+                        litShader = Shader.Find("Unlit/Color");
+                    
+                    Material mat = new Material(litShader);
                     mat.color = currentWeaponData.weaponColor;
                     if (currentWeaponData.weaponTexture != null) mat.mainTexture = currentWeaponData.weaponTexture;
                     renderer.material = mat;

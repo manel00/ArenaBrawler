@@ -50,7 +50,7 @@ namespace ArenaEnhanced
         public float katanaRapidDamage = 18f;
         
         [Tooltip("Daño del ataque cargado")]
-        public float katanaChargedDamage = 90f;
+        public float katanaChargedDamage = 65f;
         
         [Tooltip("Cooldown después del combo")]
         public float katanaComboCooldown = 1.1f;
@@ -72,8 +72,11 @@ namespace ArenaEnhanced
         [Tooltip("Vida del perro")]
         public float dogMaxHealth = 150f;
         
-        [Tooltip("Daño del perro")]
-        public float dogDamage = 20f;
+        [Tooltip("Daño mínimo del perro")]
+        public float dogMinDamage = 15f;
+        
+        [Tooltip("Daño máximo del perro")]
+        public float dogMaxDamage = 25f;
         
         [Tooltip("Cooldown de invocación")]
         public float dogSummonCooldown = 10f;

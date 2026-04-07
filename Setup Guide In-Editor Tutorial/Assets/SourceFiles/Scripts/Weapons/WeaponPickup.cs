@@ -168,60 +168,10 @@ namespace ArenaEnhanced
             return pickup;
         }
 
-        private static void ApplyMaterialToWeapon(GameObject weaponObj, WeaponData data)
-        {
-            if (weaponObj == null || data == null) return;
-            
-            var renderers = weaponObj.GetComponentsInChildren<Renderer>(true);
-            foreach (var renderer in renderers)
-            {
-                if (data.weaponMaterial != null)
-                {
-                    renderer.material = data.weaponMaterial;
-                    Debug.Log($"[WeaponPickup] Applied material {data.weaponMaterial.name} to {data.weaponName}");
-                }
-                else if (data.weaponTexture != null)
-                {
-                    Material mat = new Material(GetLitShader());
-                    mat.color = data.weaponColor;
-                    mat.mainTexture = data.weaponTexture;
-                    renderer.material = mat;
-                    Debug.Log($"[WeaponPickup] Applied texture to {data.weaponName}");
-                }
-                else
-                {
-                    // Crear material con color específico
-                    Material mat = new Material(GetLitShader());
-                    mat.color = data.weaponColor;
-                    renderer.material = mat;
-                    Debug.Log($"[WeaponPickup] Applied color {data.weaponColor} to {data.weaponName}");
-                }
-            }
-        }
-
         private void ApplyAppearance()
         {
-            if (weaponData == null) return;
-
-            var renderers = GetComponentsInChildren<Renderer>(true);
-            foreach (var renderer in renderers)
-            {
-                if (weaponData.weaponMaterial != null)
-                {
-                    renderer.material = weaponData.weaponMaterial;
-                }
-                else if (weaponData.weaponTexture != null)
-                {
-                    Material mat = new Material(Shader.Find("Universal Render Pipeline/Lit"));
-                    mat.color = weaponData.weaponColor;
-                    mat.mainTexture = weaponData.weaponTexture;
-                    renderer.material = mat;
-                }
-                else
-                {
-                    renderer.material = GetCachedMaterial(weaponData.weaponColor);
-                }
-            }
+            // Usar el WeaponMaterialFixer para aplicar materiales correctamente
+            WeaponMaterialFixer.FixWeaponMaterials(gameObject, weaponData);
         }
 
         private static Material GetCachedMaterial(Color color)
@@ -239,15 +189,32 @@ namespace ArenaEnhanced
             return newMat;
         }
 
+        /// <summary>
+        /// Aplica el material del WeaponData al objeto del arma
+        /// </summary>
+        private static void ApplyMaterialToWeapon(GameObject weaponObj, WeaponData data)
+        {
+            WeaponMaterialFixer.FixWeaponMaterials(weaponObj, data);
+        }
+
         private void OnTriggerEnter(Collider other)
         {
+            // Ignorar fireballs y enemigos inmediatamente - no loggear
+            if (other.name.Contains("Fireball") || other.GetComponent<FireballProjectile>() != null)
+                return;
+            if (!other.CompareTag("Player"))
+                return;
+            
+            // Solo loggear cuando es el jugador
             Debug.Log($"[WeaponPickup] OnTriggerEnter with {other.name} (tag: {other.tag}, layer: {other.gameObject.layer})");
             TryPickup(other);
         }
         
         private void OnTriggerStay(Collider other)
         {
-            // Backup detection in case OnTriggerEnter missed
+            // Solo procesar jugadores
+            if (!other.CompareTag("Player"))
+                return;
             TryPickup(other);
         }
         
@@ -262,9 +229,8 @@ namespace ArenaEnhanced
             
             if (combatant != null)
             {
-                Debug.Log($"[WeaponPickup] Found combatant {combatant.name}, checking weapon system...");
+                Debug.Log($"[WeaponPickup] Player {combatant.name} found, checking weapon system...");
                 
-                // Solo recoger automáticamente si NO tiene arma equipada
                 var weaponSystem = combatant.GetComponent<PlayerWeaponSystem>();
                 if (weaponSystem != null)
                 {
@@ -276,12 +242,12 @@ namespace ArenaEnhanced
                     }
                     else
                     {
-                        Debug.Log("[WeaponPickup] Combatant already has weapon, skipping pickup");
+                        Debug.Log("[WeaponPickup] Player already has weapon, skipping pickup");
                     }
                 }
                 else
                 {
-                    Debug.LogWarning("[WeaponPickup] No PlayerWeaponSystem found on combatant!");
+                    Debug.LogWarning("[WeaponPickup] Player has no PlayerWeaponSystem!");
                 }
             }
         }

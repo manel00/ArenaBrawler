@@ -1,5 +1,4 @@
 using UnityEngine;
-using System.Collections;
 
 namespace ArenaEnhanced
 {
@@ -81,8 +80,6 @@ namespace ArenaEnhanced
 
         private Rigidbody _rb;
         private ArenaCombatant _combatant;
-        private int _currentPoints;
-        private int _currentLevel;
         private Vector3 _flatVelocity;
         private float _nextFire;
         private float _strafeSeed;
@@ -163,70 +160,30 @@ namespace ArenaEnhanced
 
         private bool ShouldEvadeBoss()
         {
-            // Check for nearby bosses
-            foreach (var c in ArenaCombatant.All)
-            {
-                if (c == null || !c.IsAlive || c == _combatant) continue;
-                
-                // Check if it's a boss (by name or tag)
-                if (c.name.Contains("T-Rex") || c.CompareTag("Boss"))
-                {
-                    float distance = Vector3.Distance(transform.position, c.transform.position);
-                    if (distance < bossEvadeDistance)
-                    {
-                        return true;
-                    }
-                }
-            }
-            return false;
+            ArenaCombatant boss;
+            return EnemyFinder.HasBossNearby(transform.position, bossEvadeDistance, out boss);
         }
 
         private void EvadeBoss()
         {
+            ArenaCombatant nearestBoss;
+            if (!EnemyFinder.HasBossNearby(transform.position, bossEvadeDistance, out nearestBoss))
+                return;
             
-            // Find nearest boss
-            ArenaCombatant nearestBoss = null;
-            float nearestDist = float.MaxValue;
+            // Run away from boss
+            Vector3 awayDir = (transform.position - nearestBoss.transform.position).normalized;
+            awayDir.y = 0;
             
-            foreach (var c in ArenaCombatant.All)
+            _flatVelocity = Vector3.MoveTowards(_flatVelocity, awayDir * moveSpeed * 1.2f, acceleration * Time.fixedDeltaTime);
+            _rb.ApplyHorizontalVelocity(_flatVelocity);
+            
+            if (_animator != null)
             {
-                if (c == null || !c.IsAlive || c == _combatant) continue;
-                
-                if (c.name.Contains("T-Rex") || c.CompareTag("Boss"))
-                {
-                    float distance = Vector3.Distance(transform.position, c.transform.position);
-                    if (distance < nearestDist)
-                    {
-                        nearestDist = distance;
-                        nearestBoss = c;
-                    }
-                }
+                _animator.SetFloat(HashSpeed, _flatVelocity.magnitude);
             }
             
-            if (nearestBoss != null)
-            {
-                // Run away from boss
-                Vector3 awayDir = (transform.position - nearestBoss.transform.position).normalized;
-                awayDir.y = 0;
-                
-                _flatVelocity = Vector3.MoveTowards(_flatVelocity, awayDir * moveSpeed * 1.2f, acceleration * Time.fixedDeltaTime);
-                ApplyHorizontalVelocity();
-                
-                if (_animator != null)
-                {
-                    _animator.SetFloat(HashSpeed, _flatVelocity.magnitude);
-                }
-                
-                // Look at boss while running away
-                Vector3 look = nearestBoss.transform.position - transform.position;
-                look.y = 0;
-                if (look.sqrMagnitude > 0.01f)
-                {
-                    Quaternion rot = Quaternion.LookRotation(look.normalized, Vector3.up);
-                    transform.rotation = Quaternion.Slerp(transform.rotation, rot, 5f * Time.fixedDeltaTime);
-                }
-            }
-            
+            // Look at boss while running away
+            EnemyFinder.RotateTowards(transform, nearestBoss.transform.position, 5f);
         }
 
         private void FollowPlayer()
@@ -256,7 +213,7 @@ namespace ArenaEnhanced
                 _flatVelocity = Vector3.MoveTowards(_flatVelocity, moveDir * moveSpeed, acceleration * Time.fixedDeltaTime);
             }
             
-            ApplyHorizontalVelocity();
+            _rb.ApplyHorizontalVelocity(_flatVelocity);
             
             if (_animator != null)
             {
@@ -264,13 +221,7 @@ namespace ArenaEnhanced
             }
             
             // Look at player
-            Vector3 lookAtPlayer = playerTransform.position - transform.position;
-            lookAtPlayer.y = 0;
-            if (lookAtPlayer.sqrMagnitude > 0.01f)
-            {
-                Quaternion rot = Quaternion.LookRotation(lookAtPlayer.normalized, Vector3.up);
-                transform.rotation = Quaternion.Slerp(transform.rotation, rot, 8f * Time.fixedDeltaTime);
-            }
+            EnemyFinder.RotateTowards(transform, playerTransform.position, 8f);
         }
 
         private ArenaCombatant FindBestTarget()
@@ -278,9 +229,13 @@ namespace ArenaEnhanced
             ArenaCombatant bestTarget = null;
             float bestScore = float.MinValue;
             
-            foreach (var c in ArenaCombatant.All)
+            // OPTIMIZACIÓN: Usar SpatialGrid para obtener solo candidatos cercanos
+            // en lugar de iterar todos los combatientes (O(n) -> O(1))
+            var candidates = SpatialGrid.FindAllInRadius(transform.position, detectDistance, _combatant.teamId, true);
+            
+            foreach (var c in candidates)
             {
-                if (c == null || !c.IsAlive || c == _combatant || c.teamId == _combatant.teamId) continue;
+                if (c == null || !c.IsAlive || c == _combatant) continue;
                 
                 float distance = Vector3.Distance(transform.position, c.transform.position);
                 if (distance > detectDistance) continue;
@@ -411,7 +366,7 @@ namespace ArenaEnhanced
             moveDir = AvoidObstacles(moveDir.normalized);
 
             _flatVelocity = Vector3.MoveTowards(_flatVelocity, moveDir * moveSpeed, acceleration * Time.fixedDeltaTime);
-            ApplyHorizontalVelocity();
+            _rb.ApplyHorizontalVelocity(_flatVelocity);
 
             if (_animator != null)
             {
@@ -419,12 +374,7 @@ namespace ArenaEnhanced
             }
 
             // Look at target
-            Vector3 look = Vector3.Scale(toTarget, new Vector3(1f, 0f, 1f));
-            if (look.sqrMagnitude > 0.01f)
-            {
-                Quaternion rot = Quaternion.LookRotation(look.normalized, Vector3.up);
-                transform.rotation = Quaternion.Slerp(transform.rotation, rot, 10f * Time.fixedDeltaTime);
-            }
+            EnemyFinder.RotateTowards(transform, target.transform.position, 10f);
 
             // ATTACK
             bool canAttack = _weaponSystem != null && _weaponSystem.HasWeapon;
@@ -456,9 +406,13 @@ namespace ArenaEnhanced
             Vector3 separation = Vector3.zero;
             int count = 0;
             
-            foreach (var c in ArenaCombatant.All)
+            // OPTIMIZACIÓN: Usar SpatialGrid para obtener solo aliados cercanos
+            // en lugar de iterar todos los combatientes (O(n) -> O(1))
+            var nearby = SpatialGrid.FindAllInRadius(transform.position, groupSpreadDistance, _combatant.teamId, false);
+            
+            foreach (var c in nearby)
             {
-                if (c == null || c == _combatant || c.teamId != _combatant.teamId) continue;
+                if (c == null || c == _combatant) continue;
                 
                 float distance = Vector3.Distance(transform.position, c.transform.position);
                 if (distance < groupSpreadDistance && distance > 0.1f)
@@ -480,12 +434,7 @@ namespace ArenaEnhanced
 
         private void ApplyHorizontalVelocity()
         {
-            if (_rb == null) return;
-            
-            Vector3 vel = _rb.linearVelocity;
-            vel.x = _flatVelocity.x;
-            vel.z = _flatVelocity.z;
-            _rb.linearVelocity = vel;
+            _rb.ApplyHorizontalVelocity(_flatVelocity);
         }
 
         private Vector3 AvoidObstacles(Vector3 desired)
@@ -501,6 +450,14 @@ namespace ArenaEnhanced
             Vector3 groundCheckPos = transform.position + desired.normalized * 1.5f + Vector3.up * 0.5f;
             int edgeHitCount = Physics.RaycastNonAlloc(groundCheckPos, Vector3.down, _edgeHitBuffer, 2f);
             bool isEdge = edgeHitCount == 0;
+
+            if (!obstructed && !isEdge) return desired;
+
+            // Edge detection usando EnemyFinder como alternativa
+            if (!EnemyFinder.CheckEdgeSafe(transform.position, desired.normalized, 1.5f, 2f))
+            {
+                isEdge = true;
+            }
 
             if (!obstructed && !isEdge) return desired;
 

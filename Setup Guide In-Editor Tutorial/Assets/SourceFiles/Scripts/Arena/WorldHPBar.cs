@@ -28,11 +28,19 @@ namespace ArenaEnhanced
             if (_bgMat == null)
             {
                 _bgMat = new Material(Shader.Find("Universal Render Pipeline/Unlit"));
+                if (_bgMat == null || _bgMat.shader.name.Contains("Error"))
+                    _bgMat = new Material(Shader.Find("Unlit/Color"));
+                if (_bgMat == null || _bgMat.shader.name.Contains("Error"))
+                    _bgMat = new Material(Shader.Find("Standard"));
                 _bgMat.color = new Color(0.15f, 0f, 0f);
             }
             if (_fillMat == null)
             {
                 _fillMat = new Material(Shader.Find("Universal Render Pipeline/Unlit"));
+                if (_fillMat == null || _fillMat.shader.name.Contains("Error"))
+                    _fillMat = new Material(Shader.Find("Unlit/Color"));
+                if (_fillMat == null || _fillMat.shader.name.Contains("Error"))
+                    _fillMat = new Material(Shader.Find("Standard"));
                 _fillMat.color = new Color(0.9f, 0.2f, 0.2f);
             }
 

@@ -75,8 +75,9 @@ namespace ArenaEnhanced
             }
             else
             {
-                // Si no tiene Rigidbody, mover manualmente
-                transform.position += direction * launchSpeed * Time.deltaTime;
+                // Si no tiene Rigidbody, mostrar warning y no mover
+                // El proyectil requiere Rigidbody para funcionar correctamente
+                Debug.LogWarning("[PooledProjectile] No Rigidbody attached - projectile won't move. Please add a Rigidbody component.");
             }
         }
 

@@ -220,10 +220,15 @@ namespace ArenaEnhanced.Managers
         
         private void OnDisable()
         {
-            // Return to pool when disabled
-            if (ObjectPoolManager.Instance != null)
+            // Return to pool when disabled, but only if the object is not being destroyed
+            // and the pool manager instance is still valid
+            if (ObjectPoolManager.Instance != null && this != null && gameObject != null)
             {
-                ObjectPoolManager.Instance.Despawn(gameObject);
+                // Only return if we're not already being destroyed
+                if (!gameObject.activeInHierarchy && gameObject.scene.isLoaded)
+                {
+                    ObjectPoolManager.Instance.Despawn(gameObject);
+                }
             }
         }
     }

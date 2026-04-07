@@ -7,8 +7,8 @@ namespace ArenaEnhanced
     /// <summary>
     /// Ice Katana weapon system for the player.
     /// K          -> equip / unequip
-    /// 5 (tap)    -> 5-hit rapid samurai combo
-    /// 5 (hold)   -> charged wide slash (more damage + ice knockback)
+    /// 3 (tap)    -> 5-hit rapid samurai combo
+    /// 3 (hold)   -> charged wide slash (more damage + ice knockback)
     ///
     /// Visual simulation: TrailRenderer on blade tip + LineRenderer slash arc + camera shake.
     /// No external animation clips required.
@@ -18,13 +18,15 @@ namespace ArenaEnhanced
     {
         // ── Combat stats ─────────────────────────────────────────────────────
         [Header("Katana Stats")]
-        public float rapidDamagePerHit  = 18f;
-        public float chargedDamage      = 90f;
-        public float attackRange        = 2.8f;
-        public float comboWindow        = 0.5f;      // seconds between combo hits
-        public float chargeThreshold    = 0.45f;     // hold >= this -> charged attack
+        public float rapidDamagePerHit = 18f;
+        public float chargedDamage = 65f;
+        public float attackRange = 2.8f;
+        public float comboWindow = 0.5f;
+        public float chargeThreshold = 0.45f;
         public float cooldownAfterCombo = 1.1f;
         public float cooldownAfterCharge = 1.8f;
+
+        private GameBalanceConfig _balanceConfig;
 
         // ── VFX ──────────────────────────────────────────────────────────────
         [Header("VFX")]
@@ -42,6 +44,15 @@ namespace ArenaEnhanced
         private GameObject     _katanaRoot;
         private TrailRenderer  _bladeTrail;
 
+        // ── Hand Positioning ───────────────────────────────────────────────────
+        [Header("Hand Positioning (Local Space)")]
+        [Tooltip("Position offset relative to hand bone")]
+        public Vector3 handPositionOffset = new Vector3(0.05f, 0.02f, 0.02f);
+        [Tooltip("Rotation offset relative to hand bone (Euler angles)")]
+        public Vector3 handRotationOffset = new Vector3(0f, -90f, 90f);
+        [Tooltip("Uniform scale of the katana model")]
+        public float modelScale = 0.015f;
+
         // ── State ────────────────────────────────────────────────────────────
         private bool  _equipped   = false;
         private bool  _onCooldown = false;
@@ -54,16 +65,73 @@ namespace ArenaEnhanced
         private static readonly int HASH_ATTACK  = Animator.StringToHash("Attack");
         private static readonly int HASH_ATTACK2 = Animator.StringToHash("Attack2");
 
+        // ── Material caching para evitar memory leaks ────────────────────────
+        // NOTA: No usar static para permitir limpieza correcta al recargar escenas
+        private Material _cachedDefaultMaterial;
+        private Material _cachedURPMaterial;
+        private Material _cachedURPSimpleMaterial;
+        private Material _cachedStandardMaterial;
+        private Material _cachedDiffuseMaterial;
+
+        private Material GetCachedDefaultMaterial()
+        {
+            if (_cachedDefaultMaterial == null)
+                _cachedDefaultMaterial = new Material(Shader.Find("Sprites/Default"));
+            return _cachedDefaultMaterial;
+        }
+
+        private Material GetCachedURPMaterial()
+        {
+            if (_cachedURPMaterial == null)
+                _cachedURPMaterial = new Material(Shader.Find("Universal Render Pipeline/Lit"));
+            return _cachedURPMaterial;
+        }
+
+        private Material GetCachedURPSimpleMaterial()
+        {
+            if (_cachedURPSimpleMaterial == null)
+                _cachedURPSimpleMaterial = new Material(Shader.Find("Universal Render Pipeline/Simple Lit"));
+            return _cachedURPSimpleMaterial;
+        }
+
+        private Material GetCachedStandardMaterial()
+        {
+            if (_cachedStandardMaterial == null)
+                _cachedStandardMaterial = new Material(Shader.Find("Standard"));
+            return _cachedStandardMaterial;
+        }
+
+        private Material GetCachedDiffuseMaterial()
+        {
+            if (_cachedDiffuseMaterial == null)
+                _cachedDiffuseMaterial = new Material(Shader.Find("Diffuse"));
+            return _cachedDiffuseMaterial;
+        }
+
         // ─────────────────────────────────────────────────────────────────────
         private void Awake()
         {
             _combatant = GetComponent<ArenaCombatant>();
+            if (_combatant == null)
+            {
+                _combatant = gameObject.AddComponent<ArenaCombatant>();
+                _combatant.teamId = 1;
+                _combatant.displayName = "Player";
+            }
+            
+            // Load balance config
+            _balanceConfig = Resources.Load<GameBalanceConfig>("Configs/GameBalanceConfig");
+            if (_balanceConfig != null)
+            {
+                rapidDamagePerHit = _balanceConfig.katanaRapidDamage;
+                chargedDamage = _balanceConfig.katanaChargedDamage;
+                cooldownAfterCombo = _balanceConfig.katanaComboCooldown;
+                cooldownAfterCharge = _balanceConfig.katanaChargedCooldown;
+            }
+            
             _animator  = GetComponentInChildren<Animator>();
             _cam       = Camera.main;
             LocateHandBone();
-#if DEBUG
-            Debug.Log("[KatanaWeapon] Awake - Component initialized on " + gameObject.name);
-#endif
         }
 
         private void OnEnable()
@@ -72,9 +140,6 @@ namespace ArenaEnhanced
             InputManager.OnKatanaEquipToggle += ToggleEquip;
             InputManager.OnKatanaAttackPressed += OnAttackPressed;
             InputManager.OnKatanaAttackReleased += OnAttackReleased;
-#if DEBUG
-            Debug.Log("[KatanaWeapon] OnEnable - Events subscribed");
-#endif
         }
 
         private void OnDisable()
@@ -83,56 +148,50 @@ namespace ArenaEnhanced
             InputManager.OnKatanaEquipToggle -= ToggleEquip;
             InputManager.OnKatanaAttackPressed -= OnAttackPressed;
             InputManager.OnKatanaAttackReleased -= OnAttackReleased;
-#if DEBUG
-            Debug.Log("[KatanaWeapon] OnDisable - Events unsubscribed");
-#endif
         }
 
         private void Start()
         {
-#if DEBUG
-            Debug.Log("[KatanaWeapon] Start - Checking InputManager...");
-            if (InputManager.Instance == null)
-                Debug.LogError("[KatanaWeapon] InputManager.Instance is NULL!");
-#endif
+            // Auto-equip katana on start - no need to press K
+            if (!_equipped)
+            {
+                ToggleEquip();
+            }
         }
 
         private void Update()
         {
-            // No procesar input si no está equipada
-            if (!_equipped) return;
-            
-            // Fallback input handling if events don't work
-#if ENABLE_INPUT_SYSTEM
-            if (Keyboard.current != null)
-            {
-                if (Keyboard.current.kKey.wasPressedThisFrame)
-                    ToggleEquip();
-
-                if (Keyboard.current.digit5Key.wasPressedThisFrame || Keyboard.current.numpad5Key.wasPressedThisFrame)
-                    OnAttackPressed();
-                if (Keyboard.current.digit5Key.wasReleasedThisFrame || Keyboard.current.numpad5Key.wasReleasedThisFrame)
-                    OnAttackReleased();
-            }
-#else
-            if (Input.GetKeyDown(KeyCode.K))
-                ToggleEquip();
-
-            if (Input.GetKeyDown(KeyCode.Alpha5) || Input.GetKeyDown(KeyCode.Keypad5))
-                OnAttackPressed();
-            if (Input.GetKeyUp(KeyCode.Alpha5) || Input.GetKeyUp(KeyCode.Keypad5))
-                OnAttackReleased();
-#endif
+            // NOTA: El input se maneja a través de eventos de InputManager:
+            // - K: ToggleEquip (OnKatanaEquipToggle)
+            // - 3: OnAttackPressed/Released (OnKatanaAttackPressed/Released)
+            // NO agregar input directo aquí para evitar duplicación
         }
 
         private void LocateHandBone()
         {
-            string[] names = { "RightHand", "Hand_R", "mixamorig:RightHand", "r_hand" };
-            foreach (string n in names)
+            // Más nombres comunes de huesos de mano para diferentes modelos/rigs
+            string[] boneNames = { 
+                "RightHand", "Hand_R", "mixamorig:RightHand", "r_hand", 
+                "Right_Hand", "hand_r", "Bip01_R_Hand", "bip001 r hand",
+                "Hand_R_01", "R_Hand", "RightHandIndex1", "hand.R"
+            };
+            
+            foreach (string n in boneNames)
             {
                 var t = DeepFind(transform, n);
-                if (t != null) { _handBone = t; return; }
+                if (t != null) { 
+                    _handBone = t; 
+                    return; 
+                }
             }
+            
+            _handBone = FindBoneContaining(transform, "hand");
+            if (_handBone != null)
+            {
+                return;
+            }
+            
+            // Último fallback: usar el transform del jugador
             _handBone = transform;
         }
 
@@ -147,12 +206,20 @@ namespace ArenaEnhanced
             return null;
         }
 
+        private Transform FindBoneContaining(Transform root, string partialName)
+        {
+            string lowerPartial = partialName.ToLower();
+            foreach (Transform child in root.GetComponentsInChildren<Transform>(true))
+            {
+                if (child.name.ToLower().Contains(lowerPartial))
+                    return child;
+            }
+            return null;
+        }
+
         // ── K: toggle equip ──────────────────────────────────────────────────
         private void ToggleEquip()
         {
-#if DEBUG
-            Debug.Log("[KatanaWeapon] ToggleEquip called");
-#endif
             _equipped = !_equipped;
             if (_equipped) DoEquip();
             else DoUnequip();
@@ -161,38 +228,25 @@ namespace ArenaEnhanced
         private void DoEquip()
         {
             BuildKatanaModel();
-#if DEBUG
-            Debug.Log("[Katana] EQUIPADA — [5] rapido = combo, [5] hold = cargado, [K] = guardar");
-#endif
         }
 
         private void DoUnequip()
         {
-            DestroyKatanaModel();
-            // Resetear estado de ataque al desequipar
-            _key5DownAt = -1f;
+            if (_katanaRoot != null)
+                _katanaRoot.SetActive(false);
             StopAllCoroutines();
             _onCooldown = false;
-#if DEBUG
-            Debug.Log("[Katana] GUARDADA");
-#endif
         }
 
-        // ── 5: tap vs hold ───────────────────────────────────────────────────
+        // ── 3: tap vs hold ───────────────────────────────────────────────────
         private void OnAttackPressed()
         {
-#if DEBUG
-            Debug.Log($"[KatanaWeapon] OnAttackPressed - equipped:{_equipped}");
-#endif
             if (!_equipped) return;
             _key5DownAt = Time.time;
         }
 
         private void OnAttackReleased()
         {
-#if DEBUG
-            Debug.Log($"[KatanaWeapon] OnAttackReleased - key5DownAt:{_key5DownAt}");
-#endif
             if (!_equipped) return;
             if (_key5DownAt < 0f) return;
 
@@ -210,7 +264,7 @@ namespace ArenaEnhanced
         // ─────────────────────────────────────────────────────────────────────
         private IEnumerator RapidComboRoutine()
         {
-            for (int i = 0; i < 5; i++)
+            for (int i = 0; i < 3; i++)
             {
                 ExecuteSlash(rapidDamagePerHit, false, i);
                 yield return new WaitForSeconds(comboWindow);
@@ -229,11 +283,17 @@ namespace ArenaEnhanced
                 yield return null;
             }
 
-            ExecuteSlash(chargedDamage, true, 0);
+            ExecuteSlash(chargedDamage, true);
         }
 
-        private void ExecuteSlash(float damage, bool isCharged, int comboIndex)
+        private void ExecuteSlash(float damage, bool isCharged, int comboIndex = 0)
         {
+            // Validar combatant antes de usar
+            if (_combatant == null)
+            {
+                return;
+            }
+            
             // Trigger animator if has matching parameters
             if (_animator != null)
             {
@@ -254,6 +314,8 @@ namespace ArenaEnhanced
         // ─────────────────────────────────────────────────────────────────────
         private void HitArc(float damage, bool isCharged)
         {
+            if (_combatant == null) return;
+            
             float halfAngle = isCharged ? 60f : 35f;
             var hits = Physics.OverlapSphere(transform.position, attackRange);
 
@@ -269,9 +331,9 @@ namespace ArenaEnhanced
                 if (Vector3.Angle(transform.forward, toTarget) > halfAngle) continue;
 
                 float finalDmg = damage * _combatant.damageMultiplier;
-                target.TakeDamage(finalDmg, gameObject);
+                target.TakeDamage(finalDmg, gameObject, DamageType.Ice);
 
-                if (isCharged)
+                if (isCharged && target != null && target.IsAlive)
                     target.ApplyKnockback((toTarget.normalized + Vector3.up * 0.4f) * 9f);
             }
         }
@@ -336,11 +398,24 @@ namespace ArenaEnhanced
             lr.endWidth      = 0.01f;
             lr.useWorldSpace = true;
 
-            var mat = new Material(Shader.Find("Sprites/Default"));
-            mat.color = isCharged
+            // Usar material cacheado y reutilizable - crear solo uno por instancia
+            if (_cachedDefaultMaterial == null)
+                _cachedDefaultMaterial = GetCachedDefaultMaterial();
+            
+            var mat = _cachedDefaultMaterial;
+            if (mat == null || mat.shader.name.Contains("Error"))
+            {
+                if (_cachedStandardMaterial == null)
+                    _cachedStandardMaterial = GetCachedStandardMaterial();
+                mat = _cachedStandardMaterial;
+            }
+            
+            // Reutilizar el mismo material pero cambiar el color vía property block para no crear instancias
+            var instanceMat = mat;
+            instanceMat.color = isCharged
                 ? new Color(0.7f, 0.3f, 1f, 0.9f)
                 : new Color(0.5f, 0.9f, 1f, 0.85f);
-            lr.material = mat;
+            lr.material = instanceMat;
 
             float halfAngle = isCharged ? 55f : 30f;
             float radius    = attackRange * 0.9f;
@@ -373,37 +448,117 @@ namespace ArenaEnhanced
         }
 
         // ─────────────────────────────────────────────────────────────────────
-        // Model construction
+        // Model construction - Loads real ice_sword_by_get3dmodels.glb
         // ─────────────────────────────────────────────────────────────────────
+#if UNITY_EDITOR
+        private const string KATANA_MODEL_PATH = "Assets/Models/Weapons/ice_sword_by_get3dmodels.glb";
+#else
+        private const string KATANA_MODEL_PATH = "Models/Weapons/ice_sword_by_get3dmodels";
+#endif
+
         private void BuildKatanaModel()
         {
             DestroyKatanaModel();
 
+            if (_handBone == null)
+            {
+                return;
+            }
+
             _katanaRoot = new GameObject("KatanaRoot");
             _katanaRoot.transform.SetParent(_handBone, false);
-            _katanaRoot.transform.localPosition = new Vector3(0.12f, -0.015f, 0.08f);
-            _katanaRoot.transform.localRotation = Quaternion.Euler(0f, 0f, -90f);
-            _katanaRoot.transform.localScale    = Vector3.one * 0.15f;
 
-            // Try to load the GLB from Resources (Unity imports GLB as Prefab)
-            // The asset is at Assets/Models/Weapons/ice_sword_by_get3dmodels.glb
-            // We can't load it via Resources.Load unless it's inside a Resources folder,
-            // so we build a stylised placeholder that looks like an ice sword.
-            BuildIceSwordMesh(_katanaRoot.transform);
+            // Apply configured positioning
+            _katanaRoot.transform.localPosition = handPositionOffset;
+            _katanaRoot.transform.localRotation = Quaternion.Euler(handRotationOffset);
+            _katanaRoot.transform.localScale = Vector3.one * modelScale;
 
-            // Trail on blade tip
-            var tip = new GameObject("BladeTip");
-            tip.transform.SetParent(_katanaRoot.transform, false);
-            tip.transform.localPosition = new Vector3(0f, 1.1f, 0f); // tip of the blade
+            // Try to load the imported GLB prefab
+            GameObject loadedModel = null;
+            
+            // Intentar cargar desde Resources en runtime
+            loadedModel = Resources.Load<GameObject>("Models/Weapons/ice_sword_by_get3dmodels");
+            
+#if UNITY_EDITOR
+            // Fallback a AssetDatabase en editor
+            if (loadedModel == null)
+            {
+                loadedModel = UnityEditor.AssetDatabase.LoadAssetAtPath<GameObject>(KATANA_MODEL_PATH);
+                if (loadedModel == null)
+                {
+                    // Try without .glb extension
+                    loadedModel = UnityEditor.AssetDatabase.LoadAssetAtPath<GameObject>("Assets/Models/Weapons/ice_sword_by_get3dmodels");
+                }
+            }
+#endif
+            if (loadedModel != null)
+            {
+                // Instantiate the imported model inside KatanaRoot
+                var modelInstance = Instantiate(loadedModel, _katanaRoot.transform);
+                modelInstance.transform.localPosition = Vector3.zero;
+                modelInstance.transform.localRotation = Quaternion.identity;
+                
+                // Reset scale to 1 since we apply scale on parent
+                modelInstance.transform.localScale = Vector3.one;
+                modelInstance.name = "IceSwordModel";
+            }
+            else
+            {
+                // Fallback to procedural mesh if GLB not found
+                BuildIceSwordMesh(_katanaRoot.transform);
+            }
+        }
 
-            _bladeTrail            = tip.AddComponent<TrailRenderer>();
-            _bladeTrail.time       = 0.18f;
-            _bladeTrail.startWidth = 0.07f;
-            _bladeTrail.endWidth   = 0.005f;
-            _bladeTrail.startColor = trailColorA;
-            _bladeTrail.endColor   = trailColorB;
-            _bladeTrail.emitting   = false;
-            _bladeTrail.material   = new Material(Shader.Find("Sprites/Default"));
+        private Bounds CalculateBounds(GameObject obj)
+        {
+            var renderers = obj.GetComponentsInChildren<Renderer>();
+            if (renderers.Length == 0) return new Bounds(Vector3.zero, Vector3.zero);
+            
+            var bounds = renderers[0].bounds;
+            for (int i = 1; i < renderers.Length; i++)
+            {
+                bounds.Encapsulate(renderers[i].bounds);
+            }
+            return bounds;
+        }
+
+        private TrailRenderer FindOrCreateBladeTrail()
+        {
+            // Try to find existing trail or create one
+            Transform bladeTip = DeepFind(_katanaRoot.transform, "BladeTip");
+            if (bladeTip == null)
+            {
+                // Search for common blade tip names in the model
+                string[] tipNames = { "tip", "Tip", "blade_tip", "Blade_Tip", "point", "end" };
+                foreach (var name in tipNames)
+                {
+                    bladeTip = DeepFind(_katanaRoot.transform, name);
+                    if (bladeTip != null) break;
+                }
+            }
+
+            if (bladeTip == null)
+            {
+                // Create a trail at the end of the blade (estimated position)
+                bladeTip = new GameObject("BladeTip").transform;
+                bladeTip.SetParent(_katanaRoot.transform, false);
+                bladeTip.localPosition = new Vector3(0f, 1.1f, 0f); // approximate blade tip
+            }
+
+            var trail = bladeTip.GetComponent<TrailRenderer>();
+            if (trail == null)
+            {
+                trail = bladeTip.gameObject.AddComponent<TrailRenderer>();
+                trail.time = 0.18f;
+                trail.startWidth = 0.07f;
+                trail.endWidth = 0.005f;
+                trail.startColor = trailColorA;
+                trail.endColor = trailColorB;
+                trail.emitting = false;
+                trail.material = GetCachedDefaultMaterial();
+            }
+
+            return trail;
         }
 
         private void BuildIceSwordMesh(Transform parent)
@@ -416,9 +571,11 @@ namespace ArenaEnhanced
             blade.transform.localPosition = new Vector3(0f, 0.52f, 0f);
             Destroy(blade.GetComponent<Collider>());
 
-            var bladeMat = new Material(Shader.Find("Universal Render Pipeline/Lit"));
+            var bladeMat = GetCachedURPMaterial();
             if (bladeMat == null || bladeMat.shader.name.Contains("Error"))
-                bladeMat = new Material(Shader.Find("Standard"));
+                bladeMat = GetCachedStandardMaterial();
+            if (bladeMat == null || bladeMat.shader.name.Contains("Error"))
+                bladeMat = GetCachedDiffuseMaterial();
             bladeMat.color = new Color(0.55f, 0.88f, 1f, 1f);
             blade.GetComponent<MeshRenderer>().material = bladeMat;
 

@@ -1,0 +1,12 @@
+{
+    "mapId": "rockycanyon",
+    "displayName": "Rocky Canyon",
+    "description": "Elevated terrain with rocks and high ground advantage",
+    "arenaRadius": 50,
+    "playerSpawnPosition": {"x": 0, "y": 2, "z": -12},
+    "botSpawnRadius": 12,
+    "ambientLightColor": {"r": 0.25, "g": 0.22, "b": 0.18, "a": 1},
+    "fogColor": {"r": 0.18, "g": 0.15, "b": 0.12, "a": 1},
+    "fogDensity": 0.018,
+    "environmentType": 2
+}

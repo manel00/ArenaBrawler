@@ -66,7 +66,7 @@ namespace ArenaEnhanced
             combatant.displayName = enemyName;
             combatant.teamId = 99;
             combatant.isPlayer = false;
-            combatant.maxHp = isFlying ? 40f : 60f;
+            combatant.maxHp = isFlying ? 80f : 120f;
             combatant.hp = combatant.maxHp;
             combatant.countsForVictory = true;
 
@@ -80,9 +80,9 @@ namespace ArenaEnhanced
             ai.isDestructive = false;
             ai.combatant = combatant;
             ai.attackRange = isFlying ? 2.5f : 1.8f;
-            ai.attackDamage = isFlying ? 8f : 12f;
+            ai.attackDamage = isFlying ? 12f : 18f;
             ai.attackCooldown = 1.2f;
-            ai.moveSpeed = Random.Range(3.5f, 5.5f);
+            ai.moveSpeed = Random.Range(7.35f, 11.55f);
             ai.flyingHoverHeight = 2.5f;
 
             return combatant;
@@ -132,8 +132,8 @@ namespace ArenaEnhanced
             combatant.displayName = bossName + " [BOSS]";
             combatant.teamId = 99;
             combatant.isPlayer = false;
-            combatant.maxHp = 500f;
-            combatant.hp = 500f;
+            combatant.maxHp = 1000f;
+            combatant.hp = 1000f;
             combatant.countsForVictory = true;
 
             var hpBar = go.AddComponent<WorldHPBar>();
@@ -146,9 +146,9 @@ namespace ArenaEnhanced
             ai.isDestructive = true;
             ai.combatant = combatant;
             ai.attackRange = bossH * 0.5f;
-            ai.attackDamage = 35f;
+            ai.attackDamage = 52.5f;
             ai.attackCooldown = 2f;
-            ai.moveSpeed = 3f;
+            ai.moveSpeed = 9f;
             ai.flyingHoverHeight = 0f;
 
             return combatant;

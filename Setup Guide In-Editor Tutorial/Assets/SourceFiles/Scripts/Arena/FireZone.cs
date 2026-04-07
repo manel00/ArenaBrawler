@@ -230,8 +230,6 @@ namespace ArenaEnhanced
             {
                 _fireLight.enabled = true;
             }
-            
-            Debug.Log("[FireZone] Reactivated");
         }
         
         public bool IsActive() => _isActive;

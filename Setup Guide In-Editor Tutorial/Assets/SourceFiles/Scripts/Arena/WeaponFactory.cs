@@ -74,7 +74,7 @@ namespace ArenaEnhanced
             weapon.attackRange = config.sgAttackRange;
             weapon.attackCooldown = config.sgAttackCooldown;
             weapon.maxAmmo = config.sgMaxAmmo;
-            weapon.infiniteAmmo = false;
+            weapon.infiniteAmmo = true;
             weapon.projectilesPerShot = config.sgProjectilesPerShot;
             weapon.spreadAngle = config.sgSpreadAngle;
             weapon.projectileSpeed = config.sgProjectileSpeed;

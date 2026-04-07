@@ -1,6 +1,7 @@
 using System.Collections.Generic;
 using UnityEngine;
 using ArenaEnhanced.Interfaces;
+using System.Collections; // Added for HashSet
 
 namespace ArenaEnhanced
 {
@@ -9,8 +10,9 @@ namespace ArenaEnhanced
     /// </summary>
     public class ArenaCombatant : MonoBehaviour, IDamageable
     {
-        private static readonly List<ArenaCombatant> _allCombatants = new List<ArenaCombatant>();
-        public static List<ArenaCombatant> All => _allCombatants;
+        // OPTIMIZATION: Changed from List to HashSet for O(1) Contains lookups
+        private static readonly HashSet<ArenaCombatant> _allCombatants = new HashSet<ArenaCombatant>();
+        public static HashSet<ArenaCombatant> All => _allCombatants;
         public static event System.Action<ArenaCombatant, ArenaCombatant> Died;
 
         [Header("Data & Identity")]
@@ -67,6 +69,8 @@ namespace ArenaEnhanced
 
         private float lastAttackTime;
         private Vector3 _spawnPosition;
+        private float _knockbackEndTime;
+        public bool IsInKnockback => Time.time < _knockbackEndTime;
 
         // Public properties for read-only access
         public string DisplayName => displayName;
@@ -85,7 +89,7 @@ namespace ArenaEnhanced
         public float HpPercent => hp / maxHp;
         
         // Events
-        public event System.Action<float, GameObject> OnDamageReceived;
+        public event System.Action<float, GameObject, DamageType> OnDamageReceived;
         public event System.Action<GameObject> OnDeath;
         public event System.Action<ArenaCombatant> OnDeathCombatant;
         public event System.Action<float, float> OnHealthChanged;
@@ -119,6 +123,9 @@ namespace ArenaEnhanced
                 Debug.Log($"[ArenaCombatant] {displayName} añadido a la lista global. Total: {_allCombatants.Count}");
 #endif
             }
+            
+            // OPTIMIZATION: Registrar en SpatialGrid para búsquedas O(1)
+            SpatialGrid.RegisterCombatant(this);
         }
 
         private void OnDisable()
@@ -130,6 +137,9 @@ namespace ArenaEnhanced
                 Debug.Log($"[ArenaCombatant] {displayName} removido de la lista global. Total: {_allCombatants.Count}");
 #endif
             }
+            
+            // OPTIMIZATION: Desregistrar del SpatialGrid
+            SpatialGrid.UnregisterCombatant(this);
         }
 
         private void Update()
@@ -139,12 +149,18 @@ namespace ArenaEnhanced
                 shieldActive = false;
                 shieldEndTime = 0f;
             }
+            
+            // OPTIMIZATION: Actualizar posición en SpatialGrid periódicamente
+            if (Time.frameCount % 5 == 0) // Cada 5 frames
+            {
+                SpatialGrid.UpdateCombatantPosition(this);
+            }
         }
 
         /// <summary>
         /// Recibe daño (implementación de IDamageable)
         /// </summary>
-        public void TakeDamage(float amount, GameObject source = null)
+        public void TakeDamage(float amount, GameObject source = null, DamageType damageType = DamageType.Normal)
         {
             if (!IsAlive || hasBarrier) return;
 
@@ -154,29 +170,51 @@ namespace ArenaEnhanced
             hp = Mathf.Max(0, hp - finalDamage);
             
 #if DEBUG
-            Debug.Log($"[ArenaCombatant] {displayName} recibió {finalDamage} daño. HP: {hp}/{maxHp}. Invocando OnHealthChanged...");
+            Debug.Log($"[ArenaCombatant] {displayName} (isPlayer={isPlayer}) recibió {finalDamage} daño. HP: {hp}/{maxHp}");
 #endif
             
             OnHealthChanged?.Invoke(hp, maxHp);
-            OnDamageReceived?.Invoke(finalDamage, source);
+            OnDamageReceived?.Invoke(finalDamage, source, damageType);
 
-            // Show Damage Popup
-            DamagePopup.Create(transform.position + Vector3.up * 1.5f, finalDamage);
+            // Show Damage Popup with type
+            DamagePopup.Create(transform.position + Vector3.up * 1.5f, finalDamage, damageType);
 
             if (hp <= 0)
             {
+#if DEBUG
+                Debug.Log($"[ArenaCombatant] {displayName} (isPlayer={isPlayer}) HP <= 0, invoking Died event!");
+#endif
                 ArenaCombatant sourceCombatant = source?.GetComponent<ArenaCombatant>();
                 Die();
                 Died?.Invoke(sourceCombatant, this);
+#if DEBUG
+                Debug.Log($"[ArenaCombatant] Died event invoked. Subscribers: {Died?.GetInvocationList().Length ?? 0}");
+#endif
             }
         }
 
         /// <summary>
         /// Recibe daño con fuente ArenaCombatant (compatibilidad)
         /// </summary>
-        public void TakeDamage(float amount, ArenaCombatant source = null)
+        public void TakeDamage(float amount, ArenaCombatant source = null, DamageType damageType = DamageType.Normal)
         {
-            TakeDamage(amount, source?.gameObject);
+            TakeDamage(amount, source?.gameObject, damageType);
+        }
+
+        /// <summary>
+        /// Recibe daño (overload legacy para compatibilidad)
+        /// </summary>
+        public void TakeDamage(float amount, GameObject source)
+        {
+            TakeDamage(amount, source, DamageType.Normal);
+        }
+
+        /// <summary>
+        /// Recibe daño (overload legacy para compatibilidad con ArenaCombatant source)
+        /// </summary>
+        public void TakeDamage(float amount, ArenaCombatant source)
+        {
+            TakeDamage(amount, source?.gameObject, DamageType.Normal);
         }
 
         public void ActivateShield(float duration)
@@ -194,6 +232,9 @@ namespace ArenaEnhanced
 
             hp = Mathf.Min(maxHp, hp + amount);
             OnHealthChanged?.Invoke(hp, maxHp);
+
+            // Show healing popup
+            DamagePopup.Create(transform.position + Vector3.up * 1.5f, amount, DamageType.Heal);
 
 #if DEBUG
             Debug.Log($"[ArenaCombatant] {displayName} se curó {amount}. HP: {hp}/{maxHp}");
@@ -293,6 +334,7 @@ namespace ArenaEnhanced
             var rb = GetComponent<Rigidbody>();
             if (rb != null)
             {
+                _knockbackEndTime = Time.time + 0.5f;
                 rb.AddForce(force, ForceMode.Impulse);
                 
                 var agent = GetComponent<UnityEngine.AI.NavMeshAgent>();

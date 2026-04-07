@@ -1,0 +1,12 @@
+{
+    "mapId": "volcanic",
+    "displayName": "Volcanic Coast",
+    "description": "Dark volcanic environment with rocky terrain",
+    "arenaRadius": 35,
+    "playerSpawnPosition": {"x": 0, "y": 1.2, "z": -8},
+    "botSpawnRadius": 8,
+    "ambientLightColor": {"r": 0.03, "g": 0.02, "b": 0.02, "a": 1},
+    "fogColor": {"r": 0.03, "g": 0.025, "b": 0.03, "a": 1},
+    "fogDensity": 0.04,
+    "environmentType": 7
+}

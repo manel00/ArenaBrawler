@@ -110,7 +110,7 @@ namespace ArenaEnhanced
         /// </summary>
         public void ShowHealing(Vector3 worldPosition, float amount)
         {
-            ShowDamage(worldPosition, amount, false, DamageType.Healing);
+            ShowDamage(worldPosition, amount, false, DamageType.Heal);
         }
         
         private GameObject GetFromPool()
@@ -137,7 +137,7 @@ namespace ArenaEnhanced
             
             return type switch
             {
-                DamageType.Healing => healingColor,
+                DamageType.Heal => healingColor,
                 DamageType.Poison => poisonDamageColor,
                 DamageType.Ice => iceDamageColor,
                 _ => normalDamageColor
@@ -200,16 +200,5 @@ namespace ArenaEnhanced
                 text.color = c;
             }
         }
-    }
-    
-    public enum DamageType
-    {
-        Normal,
-        Critical,
-        Healing,
-        Poison,
-        Ice,
-        Fire,
-        Electric
     }
 }

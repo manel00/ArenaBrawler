@@ -123,8 +123,6 @@ namespace ArenaEnhanced
                 GameObject fire = Instantiate(fireEffect, transform.position, Quaternion.identity, transform);
                 // Fire will be destroyed with parent
             }
-            
-            Debug.Log("[ExplosiveBarrel] Fuse ignited!");
         }
         
         public void Explode()
@@ -158,7 +156,7 @@ namespace ArenaEnhanced
                 ArenaCombatant combatant = col.GetComponent<ArenaCombatant>();
                 if (combatant != null)
                 {
-                    combatant.TakeDamage(explosionDamage, (GameObject)null);
+                    combatant.TakeDamage(explosionDamage, (GameObject)null, DamageType.Fire);
                 }
                 
                 // Apply explosion force to rigidbodies
